@@ -14,7 +14,9 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
   private readonly logger = new Logger(ProvisioningProcessor.name);
   private readonly workerId = `${os.hostname()}:${process.pid}`;
   private timer?: NodeJS.Timeout;
+  private rotationTimer?: NodeJS.Timeout;
   private ticking = false;
+  private schedulingRotations = false;
   private stopped = false;
   private active = 0;
 
@@ -40,13 +42,35 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
   onApplicationShutdown() {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.rotationTimer) clearInterval(this.rotationTimer);
   }
 
   private async start() {
     await this.reconcileProviders();
     if (this.stopped) return;
+    await this.scheduleDueRotations();
+    if (this.stopped) return;
+    const rotationPollMs = Math.max(5000, Number(this.config.get('PROXY_ROTATION_POLL_MS') || 30000));
+    this.rotationTimer = setInterval(() => void this.scheduleDueRotations(), rotationPollMs);
     this.timer = setInterval(() => void this.tick(), Number(this.config.get('PROXY_PROVISIONING_POLL_MS') || 2000));
     void this.tick();
+  }
+
+  private async scheduleDueRotations() {
+    if (this.schedulingRotations || this.stopped) return;
+    this.schedulingRotations = true;
+    try {
+      const configuredBatchSize = Number(this.config.get('PROXY_ROTATION_BATCH_SIZE') || 100);
+      const batchSize = Math.max(1, Math.min(500, Number.isFinite(configuredBatchSize) ? configuredBatchSize : 100));
+      const scheduled = await this.repository.enqueueDueRotations(batchSize);
+      if (scheduled.length > 0) {
+        this.logger.log(`Scheduled ${scheduled.length} due proxy rotation${scheduled.length === 1 ? '' : 's'}`);
+      }
+    } catch (error) {
+      this.logger.error(`Unable to schedule due proxy rotations: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      this.schedulingRotations = false;
+    }
   }
 
   private async tick() {
@@ -132,7 +156,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         expiresAt: sandboxExpiresAt,
         metadata: { service: 'socks5' },
         gost: {
-          version: String(this.config.get('GOST_VERSION') || '2.12.0'),
+          version: String(this.config.get('GOST_VERSION') || '3.2.6'),
           localPort: Number(this.config.get('GOST_LOCAL_SOCKS_PORT') || 1080),
           publicHost: endpoint.publicHost,
           bindPort: endpoint.tunnelPort,
@@ -143,6 +167,9 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           tunnelPassword,
           socksUsername: accountCredential.username,
           socksPassword: accountCredential.password,
+          bandwidthIn: this.bandwidthLimit('GOST_NODE_BANDWIDTH_IN'),
+          bandwidthOut: this.bandwidthLimit('GOST_NODE_BANDWIDTH_OUT'),
+          maxConnections: this.maxConnections(),
         },
       });
 
@@ -240,5 +267,22 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     const value = String(this.config.get('GOST_TUNNEL_TRANSPORT') || 'tcp');
     if (!['tcp', 'ws', 'wss'].includes(value)) throw new Error('GOST_TUNNEL_TRANSPORT must be tcp, ws, or wss');
     return value as 'tcp' | 'ws' | 'wss';
+  }
+
+  private bandwidthLimit(key: string) {
+    const value = String(this.config.get(key) || '').trim().toUpperCase();
+    if (!value) return null;
+    if (!/^[1-9]\d*(B|KB|MB|GB|TB)$/.test(value)) {
+      throw new Error(`${key} must be a positive bandwidth such as 10MB`);
+    }
+    return value;
+  }
+
+  private maxConnections() {
+    const value = Number(this.config.get('GOST_NODE_MAX_CONNECTIONS') || 0);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('GOST_NODE_MAX_CONNECTIONS must be a non-negative integer');
+    }
+    return value > 0 ? value : null;
   }
 }

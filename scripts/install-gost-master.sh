@@ -2,13 +2,15 @@
 
 set -Eeuo pipefail
 
-# Installs a standalone GOST v2 rendezvous service for Nova Store's E2B
+# Installs a standalone GOST v3 rendezvous service for Nova Store's E2B
 # reverse tunnels. Run this script on the master VPS as root.
 
-GOST_VERSION="${GOST_VERSION:-2.12.0}"
+GOST_VERSION="${GOST_VERSION:-3.2.6}"
 GOST_RENDEZVOUS_PORT="${GOST_RENDEZVOUS_PORT:-28443}"
 GOST_TUNNEL_PORT_MIN="${GOST_TUNNEL_PORT_MIN:-30000}"
 GOST_TUNNEL_PORT_MAX="${GOST_TUNNEL_PORT_MAX:-39999}"
+GOST_TUNNEL_TRANSPORT="${GOST_TUNNEL_TRANSPORT:-tcp}"
+GOST_METRICS_PORT="${GOST_METRICS_PORT:-9000}"
 GOST_BIN_PATH="${GOST_BIN_PATH:-/usr/local/bin/gost}"
 GOST_START_PATH="${GOST_START_PATH:-/usr/local/sbin/nova-gost-start}"
 GOST_ENV_FILE="${GOST_ENV_FILE:-/etc/nova-gost.env}"
@@ -31,9 +33,10 @@ require_root() {
 }
 
 validate_config() {
-  [[ "${GOST_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "GOST_VERSION must look like 2.12.0"
+  [[ "${GOST_VERSION}" =~ ^3\.[0-9]+\.[0-9]+$ ]] || die "GOST_VERSION must be a stable v3 release such as 3.2.6"
+  [[ "${GOST_TUNNEL_TRANSPORT}" =~ ^(tcp|ws|wss)$ ]] || die "GOST_TUNNEL_TRANSPORT must be tcp, ws, or wss"
 
-  for port_name in GOST_RENDEZVOUS_PORT GOST_TUNNEL_PORT_MIN GOST_TUNNEL_PORT_MAX; do
+  for port_name in GOST_RENDEZVOUS_PORT GOST_TUNNEL_PORT_MIN GOST_TUNNEL_PORT_MAX GOST_METRICS_PORT; do
     local port="${!port_name}"
     [[ "${port}" =~ ^[0-9]+$ ]] || die "${port_name} must be numeric"
     (( port >= 1024 && port <= 65535 )) || die "${port_name} must be between 1024 and 65535"
@@ -43,6 +46,7 @@ validate_config() {
   if (( GOST_RENDEZVOUS_PORT >= GOST_TUNNEL_PORT_MIN && GOST_RENDEZVOUS_PORT <= GOST_TUNNEL_PORT_MAX )); then
     die "The rendezvous port must not overlap the public tunnel port range"
   fi
+  (( GOST_METRICS_PORT != GOST_RENDEZVOUS_PORT )) || die "The metrics port must not match the rendezvous port"
 }
 
 read_credentials() {
@@ -82,7 +86,7 @@ download_gost() (
   temp_dir="$(mktemp -d)"
   trap 'rm -rf -- "${temp_dir}"' EXIT
   archive="${temp_dir}/gost.tar.gz"
-  url="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_${asset}.tar.gz"
+  url="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_${asset}.tar.gz"
 
   log "Downloading GOST ${GOST_VERSION} for ${asset}"
   curl --fail --show-error --location --proto '=https' --tlsv1.2 --output "${archive}" "${url}"
@@ -104,6 +108,8 @@ write_runtime_config() {
     printf 'GOST_TUNNEL_USERNAME=%s\n' "${GOST_TUNNEL_USERNAME}"
     printf 'GOST_TUNNEL_PASSWORD=%s\n' "${GOST_TUNNEL_PASSWORD}"
     printf 'GOST_RENDEZVOUS_PORT=%s\n' "${GOST_RENDEZVOUS_PORT}"
+    printf 'GOST_TUNNEL_TRANSPORT=%s\n' "${GOST_TUNNEL_TRANSPORT}"
+    printf 'GOST_METRICS_PORT=%s\n' "${GOST_METRICS_PORT}"
   } > "${GOST_ENV_FILE}"
   chown root:root "${GOST_ENV_FILE}"
   chmod 0600 "${GOST_ENV_FILE}"
@@ -118,7 +124,14 @@ write_start_wrapper() {
       ": \"\${GOST_TUNNEL_USERNAME:?GOST_TUNNEL_USERNAME is required}\"" \
       ": \"\${GOST_TUNNEL_PASSWORD:?GOST_TUNNEL_PASSWORD is required}\"" \
       ": \"\${GOST_RENDEZVOUS_PORT:?GOST_RENDEZVOUS_PORT is required}\"" \
-      "exec ${GOST_BIN_PATH} -L=\"socks5://\${GOST_TUNNEL_USERNAME}:\${GOST_TUNNEL_PASSWORD}@:\${GOST_RENDEZVOUS_PORT}\""
+      ": \"\${GOST_TUNNEL_TRANSPORT:?GOST_TUNNEL_TRANSPORT is required}\"" \
+      ": \"\${GOST_METRICS_PORT:?GOST_METRICS_PORT is required}\"" \
+      'case "${GOST_TUNNEL_TRANSPORT}" in' \
+      '  tcp) tunnel_scheme=socks5 ;;' \
+      '  ws|wss) tunnel_scheme="socks5+${GOST_TUNNEL_TRANSPORT}" ;;' \
+      '  *) echo "Unsupported GOST_TUNNEL_TRANSPORT=${GOST_TUNNEL_TRANSPORT}" >&2; exit 1 ;;' \
+      'esac' \
+      "exec ${GOST_BIN_PATH} -L=\"\${tunnel_scheme}://\${GOST_TUNNEL_USERNAME}:\${GOST_TUNNEL_PASSWORD}@:\${GOST_RENDEZVOUS_PORT}?bind=true\" -metrics=\"127.0.0.1:\${GOST_METRICS_PORT}\""
   } > "${GOST_START_PATH}"
   chown root:root "${GOST_START_PATH}"
   chmod 0755 "${GOST_START_PATH}"
@@ -142,6 +155,8 @@ write_systemd_service() {
       "ExecStart=${GOST_START_PATH}" \
       'Restart=always' \
       'RestartSec=2s' \
+      'LimitNOFILE=262144' \
+      'TasksMax=65535' \
       'NoNewPrivileges=true' \
       'PrivateTmp=true' \
       'ProtectHome=true' \
@@ -177,7 +192,8 @@ start_service() {
     die "GOST service did not start"
   fi
 
-  log "GOST rendezvous is active on TCP ${GOST_RENDEZVOUS_PORT}"
+  log "GOST v3 rendezvous is active on ${GOST_TUNNEL_TRANSPORT} port ${GOST_RENDEZVOUS_PORT}"
+  log "Prometheus metrics are available locally on 127.0.0.1:${GOST_METRICS_PORT}/metrics"
   systemctl status --no-pager --full "${GOST_SERVICE_NAME}.service"
 }
 

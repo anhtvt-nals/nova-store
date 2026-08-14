@@ -30,6 +30,9 @@ export interface ProvisionNodeInput {
     tunnelPassword: string;
     socksUsername: string;
     socksPassword: string;
+    bandwidthIn: string | null;
+    bandwidthOut: string | null;
+    maxConnections: number | null;
   };
 }
 

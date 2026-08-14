@@ -28,6 +28,15 @@ export class ProvisioningRepository {
     return Boolean(this.db.unwrap(result, 'Unable to renew proxy provisioning lease'));
   }
 
+  async enqueueDueRotations(batchSize: number) {
+    const result = await this.db.client.rpc('enqueue_due_proxy_rotations', { batch_size: batchSize });
+    const rows = this.db.unwrap(result, 'Unable to schedule due proxy rotations') as Array<{
+      scheduled_job_id: number;
+      scheduled_node_id: number;
+    }>;
+    return rows.map(row => ({ jobId: Number(row.scheduled_job_id), nodeId: Number(row.scheduled_node_id) }));
+  }
+
   async context(nodeId: number, action: ProvisioningJob['action']) {
     const result = await this.db.client.from('proxy_nodes')
       .select('id,order_id,profile_id,provider_id,provider_api_key_id,current_instance_id,public_host,tunnel_port,metadata,orders(id,rental_days,status,expires_at)')
