@@ -37,6 +37,15 @@ export class ProvisioningRepository {
     return rows.map(row => ({ jobId: Number(row.scheduled_job_id), nodeId: Number(row.scheduled_node_id) }));
   }
 
+  async enqueueExpiredTerminations(batchSize: number) {
+    const result = await this.db.client.rpc('enqueue_expired_proxy_terminations', { batch_size: batchSize });
+    const rows = this.db.unwrap(result, 'Unable to schedule expired order cleanups') as Array<{
+      scheduled_job_id: number;
+      scheduled_node_id: number;
+    }>;
+    return rows.map(row => ({ jobId: Number(row.scheduled_job_id), nodeId: Number(row.scheduled_node_id) }));
+  }
+
   async context(nodeId: number, action: ProvisioningJob['action']) {
     const result = await this.db.client.from('proxy_nodes')
       .select('id,order_id,profile_id,provider_id,provider_api_key_id,current_instance_id,public_host,tunnel_port,metadata,orders(id,rental_days,status,expires_at)')
@@ -60,6 +69,22 @@ export class ProvisioningRepository {
       rentalDays: Number(order.rental_days),
       orderExpiresAt: order.expires_at as string | null,
       metadata: (row.metadata || {}) as Record<string, unknown>,
+    };
+  }
+
+  async terminationContext(nodeId: number) {
+    const result = await this.db.client.from('proxy_nodes')
+      .select('id,provider_id,provider_api_key_id,current_instance_id,orders(status)')
+      .eq('id', nodeId).maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to load proxy termination context') as any;
+    if (!row) throw new Error('Proxy node not found');
+    const order = Array.isArray(row.orders) ? row.orders[0] : row.orders;
+    if (order?.status !== 'expired') throw new Error('Order is not expired');
+    return {
+      nodeId: row.id as number,
+      providerId: row.provider_id as number | null,
+      providerApiKeyId: row.provider_api_key_id as number | null,
+      currentInstanceId: row.current_instance_id as string | null,
     };
   }
 
@@ -207,6 +232,14 @@ export class ProvisioningRepository {
     this.db.unwrap(result, 'Unable to complete proxy replacement');
   }
 
+  async completeTermination(jobId: number, workerId: string) {
+    const result = await this.db.client.rpc('complete_proxy_termination', {
+      target_job_id: jobId,
+      worker_id: workerId,
+    });
+    this.db.unwrap(result, 'Unable to complete proxy termination');
+  }
+
   async fail(jobId: number, workerId: string, message: string, delaySeconds: number) {
     const result = await this.db.client.rpc('fail_proxy_provisioning', {
       target_job_id: jobId,
@@ -225,5 +258,15 @@ export class ProvisioningRepository {
       retry_delay_seconds: delaySeconds,
     });
     return this.db.unwrap(result, 'Unable to record proxy replacement failure') as string;
+  }
+
+  async failTermination(jobId: number, workerId: string, message: string, delaySeconds: number) {
+    const result = await this.db.client.rpc('fail_proxy_termination', {
+      target_job_id: jobId,
+      worker_id: workerId,
+      failure_message: message,
+      retry_delay_seconds: delaySeconds,
+    });
+    return this.db.unwrap(result, 'Unable to record proxy termination failure') as string;
   }
 }

@@ -15,8 +15,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
   private readonly workerId = `${os.hostname()}:${process.pid}`;
   private timer?: NodeJS.Timeout;
   private rotationTimer?: NodeJS.Timeout;
+  private expirationTimer?: NodeJS.Timeout;
   private ticking = false;
   private schedulingRotations = false;
+  private schedulingExpirations = false;
   private stopped = false;
   private active = 0;
 
@@ -43,17 +45,39 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     if (this.rotationTimer) clearInterval(this.rotationTimer);
+    if (this.expirationTimer) clearInterval(this.expirationTimer);
   }
 
   private async start() {
     await this.reconcileProviders();
     if (this.stopped) return;
+    await this.scheduleExpiredOrders();
+    if (this.stopped) return;
     await this.scheduleDueRotations();
     if (this.stopped) return;
+    const expirationPollMs = Math.max(5000, Number(this.config.get('PROXY_EXPIRATION_POLL_MS') || 30000));
     const rotationPollMs = Math.max(5000, Number(this.config.get('PROXY_ROTATION_POLL_MS') || 30000));
+    this.expirationTimer = setInterval(() => void this.scheduleExpiredOrders(), expirationPollMs);
     this.rotationTimer = setInterval(() => void this.scheduleDueRotations(), rotationPollMs);
     this.timer = setInterval(() => void this.tick(), Number(this.config.get('PROXY_PROVISIONING_POLL_MS') || 2000));
     void this.tick();
+  }
+
+  private async scheduleExpiredOrders() {
+    if (this.schedulingExpirations || this.stopped) return;
+    this.schedulingExpirations = true;
+    try {
+      const configuredBatchSize = Number(this.config.get('PROXY_EXPIRATION_BATCH_SIZE') || 100);
+      const batchSize = Math.max(1, Math.min(500, Number.isFinite(configuredBatchSize) ? configuredBatchSize : 100));
+      const scheduled = await this.repository.enqueueExpiredTerminations(batchSize);
+      if (scheduled.length > 0) {
+        this.logger.log(`Scheduled cleanup for ${scheduled.length} expired proxy node${scheduled.length === 1 ? '' : 's'}`);
+      }
+    } catch (error) {
+      this.logger.error(`Unable to schedule expired order cleanups: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      this.schedulingExpirations = false;
+    }
   }
 
   private async scheduleDueRotations() {
@@ -102,7 +126,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       }).catch(error => this.logger.error(`Could not renew job ${job.id}: ${error instanceof Error ? error.message : error}`));
     }, 60_000);
     try {
-      if (job.action === 'terminate') throw new Error('Terminate jobs are not supported by this processor');
+      if (job.action === 'terminate') {
+        await this.terminate(job);
+        return;
+      }
       const replacing = job.action === 'replace';
       const context = await this.repository.context(job.node_id, job.action);
       const capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, replacing ? 'replacement' : 'customer');
@@ -210,9 +237,12 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           .then(() => true).catch(() => false);
         if (providerId) await this.repository.markInstanceStopped(providerId, instance.externalInstanceId, terminated ? 'stopped' : 'error').catch(() => undefined);
       }
-      const recordFailure = job.action === 'replace'
-        ? this.repository.failReplacement(job.id, this.workerId, message, Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1)))
-        : this.repository.fail(job.id, this.workerId, message, Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1)));
+      const delaySeconds = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
+      const recordFailure = job.action === 'terminate'
+        ? this.repository.failTermination(job.id, this.workerId, message, delaySeconds)
+        : job.action === 'replace'
+          ? this.repository.failReplacement(job.id, this.workerId, message, delaySeconds)
+          : this.repository.fail(job.id, this.workerId, message, delaySeconds);
       await recordFailure.catch(failError =>
         this.logger.error(`Could not record failure for job ${job.id}: ${failError instanceof Error ? failError.message : failError}`)
       );
@@ -220,6 +250,21 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     } finally {
       clearInterval(leaseHeartbeat);
     }
+  }
+
+  private async terminate(job: ProvisioningJob) {
+    const context = await this.repository.terminationContext(job.node_id);
+    if (context.currentInstanceId) {
+      if (!context.providerId || !context.providerApiKeyId) {
+        throw new Error('Existing proxy instance has no provider assignment');
+      }
+      const providerConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
+      const providerApiKey = this.secrets.decryptProviderKey(providerConfig.key);
+      await this.providers.get(providerConfig.driver).terminateInstance(context.currentInstanceId, providerApiKey);
+      await this.repository.markInstanceStopped(context.providerId, context.currentInstanceId, 'stopped');
+    }
+    await this.repository.completeTermination(job.id, this.workerId);
+    this.logger.log(`Expired proxy node ${context.nodeId} terminated`);
   }
 
   private async reconcileProviders() {
