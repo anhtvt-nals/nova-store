@@ -39,7 +39,7 @@ export class AdminService {
 
   async users() {
     const [profiles, orders] = await Promise.all([
-      this.db.client.from('profiles').select('id,name,email,status').order('created_at', { ascending: false }),
+      this.db.client.from('profiles').select('id,name,email,status,is_trial').order('created_at', { ascending: false }),
       this.db.client.from('orders').select('profile_id,plan_name_snapshot,created_at').eq('status', 'active').order('created_at', { ascending: false }),
     ]);
     const rows = this.db.unwrap(profiles, 'Unable to load users');
@@ -59,14 +59,14 @@ export class AdminService {
       if (/already|registered|exists/i.test(created.error.message)) throw new ConflictException('Email already exists');
       throw new ConflictException(created.error.message);
     }
-    const result = await this.db.client.from('profiles').select('id,name,email,status').eq('auth_user_id', created.data.user.id).maybeSingle();
+    const result = await this.db.client.from('profiles').select('id,name,email,status,is_trial').eq('auth_user_id', created.data.user.id).maybeSingle();
     const profile = this.db.unwrap(result, 'Account was created but its profile could not be loaded');
     if (!profile) throw new NotFoundException('Account profile was not created');
     return { ...profile, planName: 'No active plan' };
   }
 
   async updateUser(id: number, dto: UpdateUserDto) {
-    const result = await this.db.client.from('profiles').update(dto).eq('id', id).select('id,name,email,status').maybeSingle();
+    const result = await this.db.client.from('profiles').update(dto).eq('id', id).select('id,name,email,status,is_trial').maybeSingle();
     const profile = this.db.unwrap(result, 'Unable to update user');
     if (!profile) throw new NotFoundException('User not found');
     return { ...profile, planName: 'No active plan' };
@@ -88,6 +88,22 @@ export class AdminService {
     }
     const deleted = await this.db.client.from('profiles').delete().eq('id', id);
     if (deleted.error) throw deleted.error;
+  }
+
+  async credits() {
+    const result = await this.db.client.from('profiles').select('id,name,email,is_trial,credit_wallets(balance,updated_at)').order('created_at', { ascending: false });
+    return this.db.unwrap(result, 'Unable to load credit wallets').map((row: any) => {
+      const wallet = Array.isArray(row.credit_wallets) ? row.credit_wallets[0] : row.credit_wallets;
+      return { id: row.id, name: row.name, email: row.email, isTrial: row.is_trial, balance: Number(wallet?.balance || 0), updatedAt: wallet?.updated_at || null };
+    });
+  }
+
+  async adjustCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
+    const result = await this.db.client.rpc('grant_profile_credits', {
+      target_profile_id: profileId, credit_amount: amount, entry_type: amount > 0 ? 'admin_grant' : 'admin_adjustment', entry_note: note, actor_profile_id: actorProfileId, entry_reference: null,
+    });
+    const balance = Number(this.db.unwrap(result, 'Unable to adjust credit'));
+    return { profileId, balance };
   }
 
   async categories() {
@@ -268,7 +284,7 @@ export class AdminService {
   }
 
   async generalSettings() {
-    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'support_email', 'default_currency', 'usd_to_idr_rate']);
+    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'support_email', 'default_currency', 'usd_to_idr_rate', 'credits_per_usd', 'trial_credit_amount']);
     const rows = this.db.unwrap(result, 'Unable to load settings');
     const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
     const usdToIdrRate = Number(values.usd_to_idr_rate);
@@ -277,6 +293,8 @@ export class AdminService {
       supportEmail: String(values.support_email || ''),
       defaultCurrency: String(values.default_currency || 'USD'),
       usdToIdrRate: Number.isFinite(usdToIdrRate) && usdToIdrRate > 0 ? usdToIdrRate : 16000,
+      creditsPerUsd: Number(values.credits_per_usd) > 0 ? Number(values.credits_per_usd) : 100,
+      trialCreditAmount: Number(values.trial_credit_amount) >= 0 ? Number(values.trial_credit_amount) : 100,
     };
   }
 
@@ -286,6 +304,8 @@ export class AdminService {
       { key: 'support_email', value: dto.supportEmail || '' },
       { key: 'default_currency', value: dto.defaultCurrency },
       { key: 'usd_to_idr_rate', value: dto.usdToIdrRate },
+      { key: 'credits_per_usd', value: dto.creditsPerUsd },
+      { key: 'trial_credit_amount', value: dto.trialCreditAmount },
     ];
     const result = await this.db.client.from('app_settings').upsert(rows, { onConflict: 'key' });
     if (result.error) throw result.error;

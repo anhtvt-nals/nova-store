@@ -94,6 +94,7 @@ export interface User {
   name: string;
   email: string;
   status: 'active' | 'suspended';
+  isTrial?: boolean;
   planName: string;
 }
 export interface SandboxKey {
@@ -148,7 +149,9 @@ export interface OrderQuote {
   rentalDays: number;
   total: number;
   currency: string;
+  creditCost: number | null;
 }
+export interface CreditBalance { balance: number; }
 export interface Category {
   id: number;
   slug: string;
@@ -243,7 +246,10 @@ export interface GeneralSettings {
   supportEmail: string;
   defaultCurrency: string;
   usdToIdrRate: number;
+  creditsPerUsd: number;
+  trialCreditAmount: number;
 }
+export interface CreditWallet { id: number; name: string; email: string; isTrial: boolean; balance: number; updatedAt: string | null; }
 export interface CatalogSettings {
   brandName: string;
   usdToIdrRate: number;
@@ -295,6 +301,7 @@ export const getGetClientOverviewQueryKey = () => ['client-overview'] as const;
 export const getListClientOrdersQueryKey = () => ['client-orders'] as const;
 export const getGetOrderConnectionQueryKey = (id: number, nodeId?: number) => ['order-connection', id, nodeId ?? 'default'] as const;
 export const getOrderQuoteQueryKey = (productId: number, nodeCount: number, rentalDays: number) => ['order-quote', productId, nodeCount, rentalDays] as const;
+export const getCreditBalanceQueryKey = () => ['credit-balance'] as const;
 export const getGetAdminOverviewQueryKey = () => ['admin-overview'] as const;
 export const getListUsersQueryKey = () => ['users'] as const;
 export const getListSandboxKeysQueryKey = () => ['sandbox-keys'] as const;
@@ -305,6 +312,7 @@ export const getListProvidersQueryKey = () => ['proxy-providers'] as const;
 export const getListProviderApiKeysQueryKey = () => ['provider-api-keys'] as const;
 export const getProxySettingsQueryKey = () => ['proxy-settings'] as const;
 export const getGeneralSettingsQueryKey = () => ['general-settings'] as const;
+export const getCreditWalletsQueryKey = () => ['credit-wallets'] as const;
 export const getCurrentUserQueryKey = () => ['current-user'] as const;
 
 export function useListPlans(config?: QueryConfig<Plan[]>) {
@@ -410,6 +418,9 @@ export function useOrderQuote(productId: number, nodeCount: number, rentalDays: 
     ...config?.query,
   });
 }
+export function useCreditBalance(config?: QueryConfig<CreditBalance>) {
+  return query(getCreditBalanceQueryKey(), '/orders/credits/balance', getAccessToken, config);
+}
 export function useGetAdminOverview(config?: QueryConfig<AdminOverview>) {
   return query(getGetAdminOverviewQueryKey(), '/admin/overview', getAccessToken, config);
 }
@@ -440,8 +451,11 @@ export function useProxySettings(config?: QueryConfig<ProxyPriceSetting[]>) {
 export function useGeneralSettings(config?: QueryConfig<GeneralSettings>) {
   return query(getGeneralSettingsQueryKey(), '/admin/settings', getAccessToken, config);
 }
+export function useCreditWallets(config?: QueryConfig<CreditWallet[]>) {
+  return query(getCreditWalletsQueryKey(), '/admin/credits', getAccessToken, config);
+}
 
-export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: string } }>) {
+export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'bank_transfer' | 'crypto' | 'credit' } }>) {
   return useMutation({ mutationFn: ({ data }) => request<Order>('/orders', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
@@ -453,7 +467,7 @@ export function useRecreateAllProxyNodes(options?: MutationConfig<{ nodeIds: num
 export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string; password?: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<User>('/admin/users', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
-export function useUpdateUser(options?: MutationConfig<User, { id: number; data: { name?: string; status?: string } }>) {
+export function useUpdateUser(options?: MutationConfig<User, { id: number; data: { name?: string; status?: string; isTrial?: boolean } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<User>(`/admin/users/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
 }
 export function useDeleteUser(options?: MutationConfig<void, { id: number }>) {
@@ -504,6 +518,9 @@ export function useRevokeProviderApiKey(options?: MutationConfig<void, { id: num
 export function useUpdateProxyPrice(options?: MutationConfig<ProxyPriceSetting, { id: number; data: { basePrice: number; currency: string } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<ProxyPriceSetting>(`/admin/proxy/settings/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
 }
-export function useUpdateGeneralSettings(options?: MutationConfig<GeneralSettings, { data: { siteName: string; supportEmail?: string; defaultCurrency: string; usdToIdrRate: number } }>) {
+export function useUpdateGeneralSettings(options?: MutationConfig<GeneralSettings, { data: { siteName: string; supportEmail?: string; defaultCurrency: string; usdToIdrRate: number; creditsPerUsd: number; trialCreditAmount: number } }>) {
   return useMutation({ mutationFn: ({ data }) => request<GeneralSettings>('/admin/settings', getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
+}
+export function useAdjustCredit(options?: MutationConfig<{ profileId: number; balance: number }, { id: number; data: { amount: number; note?: string } }>) {
+  return useMutation({ mutationFn: ({ id, data }) => request<{ profileId: number; balance: number }>(`/admin/credits/${id}/adjust`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }

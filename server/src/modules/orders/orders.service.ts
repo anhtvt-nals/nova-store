@@ -18,13 +18,24 @@ export class OrdersService {
   async quote(dto: QuoteOrderDto) {
     const product = await this.getProxyPricing(dto.productId);
     const unitPrice = Number(product.unitPrice);
+    const rateResult = await this.db.client.from('app_settings').select('value').eq('key', 'credits_per_usd').maybeSingle();
+    const rateRow = this.db.unwrap(rateResult, 'Unable to load credit conversion');
+    const creditsPerUsd = Number(rateRow?.value) > 0 ? Number(rateRow?.value) : 100;
+    const total = Number((unitPrice * dto.nodeCount * dto.rentalDays).toFixed(2));
     return {
       unitPrice,
       nodeCount: dto.nodeCount,
       rentalDays: dto.rentalDays,
-      total: Number((unitPrice * dto.nodeCount * dto.rentalDays).toFixed(2)),
+      total,
       currency: product.currency,
+      creditCost: product.currency === 'USD' ? Number(Math.ceil(total * creditsPerUsd * 100) / 100) : null,
     };
+  }
+
+  async creditBalance(profileId: number) {
+    const result = await this.db.client.from('credit_wallets').select('balance').eq('profile_id', profileId).maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to load credit balance');
+    return { balance: Number(row?.balance || 0) };
   }
 
   async create(profileId: number, dto: CreateOrderDto) {

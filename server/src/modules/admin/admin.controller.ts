@@ -3,7 +3,7 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
-import { CreateApiKeyDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import { AdjustCreditDto, CreateApiKeyDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 @UseGuards(AdminGuard)
 @Controller('admin')
@@ -13,6 +13,8 @@ export class AdminController {
   @Get('users') users() { return this.service.users(); }
   @Post('users') createUser(@Body() body: CreateUserDto) { return this.service.createUser(body); }
   @Patch('users/:id') updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserDto) { return this.service.updateUser(id, body); }
+  @Get('credits') credits() { return this.service.credits(); }
+  @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
   @Delete('users/:id') @HttpCode(204) deleteUser(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.service.deleteUser(id, user); }
   @Get('categories') categories() { return this.service.categories(); }
   @Post('categories') createCategory(@Body() body: CreateCategoryDto) { return this.service.createCategory(body); }

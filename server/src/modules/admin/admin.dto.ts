@@ -8,6 +8,12 @@ export class CreateUserDto {
 export class UpdateUserDto {
   @IsOptional() @IsString() @Length(2, 100) name?: string;
   @IsOptional() @IsIn(['active', 'suspended']) status?: 'active' | 'suspended';
+  @IsOptional() @IsBoolean() isTrial?: boolean;
+}
+
+export class AdjustCreditDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) amount: number;
+  @IsOptional() @IsString() @Length(0, 300) note?: string;
 }
 export class CreateApiKeyDto {
   @IsString() @Length(2, 100) label: string;
@@ -103,4 +109,6 @@ export class UpdateGeneralSettingsDto {
   @IsOptional() @IsEmail() supportEmail?: string;
   @IsString() @Matches(/^[A-Z]{3}$/) defaultCurrency: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(1) usdToIdrRate: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) creditsPerUsd: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) trialCreditAmount: number;
 }

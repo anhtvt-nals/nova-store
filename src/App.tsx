@@ -8,16 +8,16 @@ import {
 import {
   useCreateCategory, useCreateOrder, useCreateProduct, useCreateSandboxKey, useCreateUser,
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
-  useCurrentUser, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
+  useCreditBalance, useCurrentUser, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, useListAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
-  useCatalogSettings, useProxySettings, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
+  useAdjustCredit, useCatalogSettings, useCreditWallets, useProxySettings, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
   getGetAdminOverviewQueryKey, getGetClientOverviewQueryKey, getGetOrderConnectionQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey, getListCategoriesQueryKey, getListClientOrdersQueryKey, getListClientProxyNodesQueryKey, getListNodesQueryKey,
-  getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, subscribeToProxyNodeEvents,
+  getCreditWalletsQueryKey, getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, subscribeToProxyNodeEvents,
 } from '@/lib/api-client';
 import type {
-  AdminOrder, AdminProduct, CatalogProduct, Category, GeneralSettings, Plan, ProductInput, ProxyNode, ProxyProvider, RuntimeProxyNode, SandboxKey, User, Order, ConnectionDetails,
+  AdminOrder, AdminProduct, CatalogProduct, Category, CreditWallet, GeneralSettings, Plan, ProductInput, ProxyNode, ProxyProvider, RuntimeProxyNode, SandboxKey, User, Order, ConnectionDetails,
 } from '@/lib/api-client';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -157,7 +157,7 @@ function AppShell({ children, admin = false }: { children: ReactNode; admin?: bo
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = admin ? [
     { section: 'Dashboard' }, { href: '/admin', label: 'Dashboard', icon: Gauge },
-    { section: 'Info' }, { href: '/admin/info/users', label: 'Users', icon: Users },
+    { section: 'Info' }, { href: '/admin/info/users', label: 'Users', icon: Users }, { href: '/admin/credits', label: 'Credits', icon: Zap },
     { section: 'Proxy' }, { href: '/admin/proxy/api-keys', label: 'Provider API keys', icon: KeyRound }, { href: '/admin/proxy/providers', label: 'Providers', icon: Server }, { href: '/admin/proxy/orders', label: 'Orders', icon: Layers3 }, { href: '/admin/proxy/settings', label: 'Pricing', icon: Settings },
     { section: 'System' }, { href: '/admin/settings', label: 'Settings', icon: Settings },
   ] : [{ section: 'Workspace' }, { href: '/client', label: 'Overview', icon: Gauge }, { href: '/client/nodes', label: 'Nodes', icon: Server }, { href: '/client/orders', label: 'Orders', icon: Layers3 }];
@@ -175,7 +175,7 @@ function ClientDashboard() {
   const createOrder = useCreateOrder();
   const qc = useQueryClient();
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [payment, setPayment] = useState<'bank_transfer' | 'crypto'>('bank_transfer');
+  const [payment, setPayment] = useState<'bank_transfer' | 'crypto' | 'credit'>('credit');
   const [showPlans, setShowPlans] = useState(false);
   const activeNode = nodes.data?.find((node: ProxyNode) => node.status === 'online');
   const copy = (text: string) => { void navigator.clipboard?.writeText(text); };
@@ -636,10 +636,27 @@ function AdminGeneralSettingsPage() {
   const settings = useGeneralSettings();
   const update = useUpdateGeneralSettings();
   const qc = useQueryClient();
-  const [form, setForm] = useState<GeneralSettings>({ siteName: 'Nodenesia', supportEmail: '', defaultCurrency: 'USD', usdToIdrRate: 16000 });
+  const [form, setForm] = useState<GeneralSettings>({ siteName: 'Nodenesia', supportEmail: '', defaultCurrency: 'USD', usdToIdrRate: 16000, creditsPerUsd: 100, trialCreditAmount: 100 });
   useEffect(() => { if (settings.data) setForm(settings.data); }, [settings.data]);
   const inputClass = 'mt-2 block w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]';
-  return <PageLayout admin eyebrow="system" title="Settings" body="General application defaults shared across modules."><State loading={settings.isLoading} error={settings.isError} onRetry={() => settings.refetch()}><div className="max-w-2xl rounded-3xl border border-[#dbe7e9] bg-white p-6"><div className="grid gap-4"><label className="text-sm font-bold">Site name<input className={inputClass} value={form.siteName} onChange={event => setForm({ ...form, siteName: event.target.value })} /></label><label className="text-sm font-bold">Support email<input className={inputClass} type="email" value={form.supportEmail} onChange={event => setForm({ ...form, supportEmail: event.target.value })} /></label><label className="text-sm font-bold">Default currency<input className={inputClass} maxLength={3} value={form.defaultCurrency} onChange={event => setForm({ ...form, defaultCurrency: event.target.value.toUpperCase() })} /></label><label className="text-sm font-bold">USD → IDR exchange rate<input className={inputClass} type="number" min="1" step="0.01" value={form.usdToIdrRate} onChange={event => setForm({ ...form, usdToIdrRate: Math.max(1, Number(event.target.value) || 1) })} /><span className="mt-1 block text-xs font-normal text-slate-500">Used only to display prices for the Indonesian locale. Orders remain stored and calculated in USD.</span></label><Button className="mt-2 w-fit" disabled={update.isPending} onClick={() => update.mutate({ data: { ...form, supportEmail: form.supportEmail || undefined } }, { onSuccess: () => { void qc.invalidateQueries({ queryKey: getGeneralSettingsQueryKey() }); void qc.invalidateQueries({ queryKey: ['catalog-settings'] }); }, onError: error => window.alert(error.message) })}>{update.isPending ? 'Saving…' : 'Save settings'}</Button></div></div></State></PageLayout>;
+  return <PageLayout admin eyebrow="system" title="Settings" body="General application defaults shared across modules."><State loading={settings.isLoading} error={settings.isError} onRetry={() => settings.refetch()}><div className="max-w-2xl rounded-3xl border border-[#dbe7e9] bg-white p-6"><div className="grid gap-4"><label className="text-sm font-bold">Site name<input className={inputClass} value={form.siteName} onChange={event => setForm({ ...form, siteName: event.target.value })} /></label><label className="text-sm font-bold">Support email<input className={inputClass} type="email" value={form.supportEmail} onChange={event => setForm({ ...form, supportEmail: event.target.value })} /></label><label className="text-sm font-bold">Default currency<input className={inputClass} maxLength={3} value={form.defaultCurrency} onChange={event => setForm({ ...form, defaultCurrency: event.target.value.toUpperCase() })} /></label><label className="text-sm font-bold">USD → IDR exchange rate<input className={inputClass} type="number" min="1" step="0.01" value={form.usdToIdrRate} onChange={event => setForm({ ...form, usdToIdrRate: Math.max(1, Number(event.target.value) || 1) })} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold">Credits per USD<input className={inputClass} type="number" min="0.01" step="0.01" value={form.creditsPerUsd} onChange={event => setForm({ ...form, creditsPerUsd: Math.max(.01, Number(event.target.value) || .01) })} /><span className="mt-1 block text-xs font-normal text-slate-500">Example: 100 means $1 = 100 credits.</span></label><label className="text-sm font-bold">New-user trial credit<input className={inputClass} type="number" min="0" step="0.01" value={form.trialCreditAmount} onChange={event => setForm({ ...form, trialCreditAmount: Math.max(0, Number(event.target.value) || 0) })} /><span className="mt-1 block text-xs font-normal text-slate-500">Set this to one node/day cost.</span></label></div><Button className="mt-2 w-fit" disabled={update.isPending} onClick={() => update.mutate({ data: { ...form, supportEmail: form.supportEmail || undefined } }, { onSuccess: () => { void qc.invalidateQueries({ queryKey: getGeneralSettingsQueryKey() }); void qc.invalidateQueries({ queryKey: ['catalog-settings'] }); }, onError: error => window.alert(error.message) })}>{update.isPending ? 'Saving…' : 'Save settings'}</Button></div></div></State></PageLayout>;
+}
+
+function AdminCreditsPage() {
+  const wallets = useCreditWallets();
+  const adjust = useAdjustCredit();
+  const updateUser = useUpdateUser();
+  const qc = useQueryClient();
+  const applyAdjustment = (wallet: CreditWallet) => {
+    const raw = window.prompt(`Credit adjustment for ${wallet.email}. Use a positive or negative number.`, '');
+    if (raw === null) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount === 0) return window.alert('Enter a non-zero credit amount.');
+    const note = window.prompt('Audit note (required):', '')?.trim();
+    if (!note) return window.alert('An audit note is required.');
+    adjust.mutate({ id: wallet.id, data: { amount, note } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) });
+  };
+  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual adjustments are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_auto] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span /></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_auto] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div className="flex items-center gap-2"><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge>{wallet.isTrial && <button className="text-xs font-bold text-[#13716e]" disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })}>Make regular</button>}</div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><Button className="min-h-8 px-3 text-xs" variant="outline" disabled={adjust.isPending} onClick={() => applyAdjustment(wallet)}><Plus size={14} /> Adjust</Button></div>)}</div></State></PageLayout>;
 }
 
 function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' | 'security' }) {
@@ -829,9 +846,10 @@ function ProxyOrderForm({ product }: { product: CatalogProduct }) {
   const { locale, t, formatMoney } = useLocalePreferences();
   const [nodeCount, setNodeCount] = useState(1);
   const [rentalDays, setRentalDays] = useState(1);
-  const [payment, setPayment] = useState<'bank_transfer' | 'crypto'>('bank_transfer');
+  const [payment, setPayment] = useState<'bank_transfer' | 'crypto' | 'credit'>('credit');
   const quote = useOrderQuote(product.id, nodeCount, rentalDays, { query: { retry: false } });
   const createOrder = useCreateOrder();
+  const creditBalance = useCreditBalance();
   const qc = useQueryClient();
   const submit = () => {
     if (!quote.data) return;
@@ -841,6 +859,7 @@ function ProxyOrderForm({ product }: { product: CatalogProduct }) {
         setRentalDays(1);
         void qc.invalidateQueries({ queryKey: getListClientOrdersQueryKey() });
         void qc.invalidateQueries({ queryKey: getGetClientOverviewQueryKey() });
+        void qc.invalidateQueries({ queryKey: ['credit-balance'] });
       },
       onError: error => window.alert(error.message),
     });
@@ -857,8 +876,8 @@ function ProxyOrderForm({ product }: { product: CatalogProduct }) {
       <td className="whitespace-nowrap px-4 py-4 text-xs font-extrabold text-[#13716e]">{formatMoney(product.unitPrice, product.currency)}<span className="ml-1 font-normal text-slate-400">{t('perDay')}</span></td>
       <td className="w-24 px-3 py-4"><input aria-label={`Nodes for ${country}`} className={fieldClass} type="number" min={1} max={100} step={1} value={nodeCount} onChange={event => setNodeCount(Math.min(100, Math.max(1, Math.trunc(Number(event.target.value) || 1))))} /></td>
       <td className="w-24 px-3 py-4"><input aria-label={`Days for ${country}`} className={fieldClass} type="number" min={1} max={365} step={1} value={rentalDays} onChange={event => setRentalDays(Math.min(365, Math.max(1, Math.trunc(Number(event.target.value) || 1))))} /></td>
-      <td className="w-36 px-3 py-4"><select aria-label={`Payment for ${country}`} className={fieldClass} value={payment} onChange={event => setPayment(event.target.value as typeof payment)}><option value="bank_transfer">Bank transfer</option><option value="crypto">Crypto</option></select></td>
-      <td className="whitespace-nowrap px-4 py-4 text-sm font-extrabold text-[#142037]">{quote.isLoading ? '…' : formatMoney(quote.data?.total || 0, quote.data?.currency || product.currency)}</td>
+      <td className="w-36 px-3 py-4"><select aria-label={`Payment for ${country}`} className={fieldClass} value={payment} onChange={event => setPayment(event.target.value as typeof payment)}><option value="credit">Credit</option><option value="bank_transfer">Bank transfer</option><option value="crypto">Crypto</option></select></td>
+      <td className="whitespace-nowrap px-4 py-4 text-sm font-extrabold text-[#142037]">{quote.isLoading ? '…' : <>{formatMoney(quote.data?.total || 0, quote.data?.currency || product.currency)}{payment === 'credit' && <span className="mt-1 block text-[10px] font-medium text-[#13716e]">{quote.data?.creditCost?.toLocaleString() || 0} cr · {creditBalance.data?.balance?.toLocaleString() || 0} available</span>}</>}</td>
       <td className="px-4 py-4"><Button className="min-h-9 whitespace-nowrap px-3 text-xs" disabled={createOrder.isPending || quote.isLoading || !quote.data} onClick={submit}>{createOrder.isPending ? t('creating') : t('orderNow')}</Button></td>
     </tr>
     {quote.isError && <tr className="border-b border-[#edf2f3]"><td colSpan={8} className="bg-red-50 px-4 py-2 text-xs text-red-700">{country}: {quote.error.message}</td></tr>}
@@ -981,7 +1000,7 @@ function HomeRedirect() {
   return user ? <PostAuthRedirect /> : <Landing />;
 }
 
-type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-settings' | 'admin-settings';
+type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-credits' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-settings' | 'admin-settings';
 
 function Protected({ page }: { page: ProtectedPage }) {
   const { user, loading } = useAuth();
@@ -998,6 +1017,7 @@ function Protected({ page }: { page: ProtectedPage }) {
     case 'admin-overview': return <AdminOverviewPage />;
     case 'admin-catalog': return <AdminCatalogPage />;
     case 'admin-info-users': return <AdminUsersPage />;
+    case 'admin-credits': return <AdminCreditsPage />;
     case 'admin-proxy-api-keys': return <AdminProviderApiKeysPage />;
     case 'admin-proxy-providers': return <AdminProvidersPage />;
     case 'admin-proxy-orders': return <AdminOrdersPage />;
@@ -1013,7 +1033,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function RouterViews() {
-  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={AuthPage} /><Route path="/sign-up/*?" component={() => <Redirect to="/sign-in" />} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/security" component={() => <Protected page="client-security" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
+  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={AuthPage} /><Route path="/sign-up/*?" component={() => <Redirect to="/sign-in" />} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/security" component={() => <Protected page="client-security" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
 }
 
 function App() {
