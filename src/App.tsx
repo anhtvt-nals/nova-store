@@ -168,7 +168,7 @@ const compactDuration = (milliseconds: number) => {
 
 function CompactNodeCard({ order, connection, node, onRestart, restarting }: { order: Order; connection: ConnectionDetails; node?: RuntimeProxyNode; onRestart?: () => void; restarting?: boolean }) {
   const [now, setNow] = useState(Date.now());
-  const [copied, setCopied] = useState<'proxy' | 'username' | 'password' | null>(null);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -179,7 +179,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
   const remaining = expiresAt ? Math.max(0, expiresAt - now) : 0;
   const progress = expiresAt ? Math.min(100, Math.max(0, ((now - activatedAt) / total) * 100)) : 0;
   const connectionString = `${connection.protocol.toLowerCase()}://${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}`;
-  const copy = async (value: string, field: 'proxy' | 'username' | 'password') => {
+  const copy = async (value: string) => {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
     else {
       const textarea = document.createElement('textarea');
@@ -192,32 +192,28 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
       textarea.remove();
       if (!copiedSuccessfully) throw new Error('Clipboard is unavailable');
     }
-    setCopied(field);
-    window.setTimeout(() => setCopied(current => current === field ? null : current), 1500);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   };
   const status = node?.status || 'online';
   const reachable = ['online', 'degraded'].includes(status);
   const statusLabel = status === 'online' ? 'READY' : status.toUpperCase();
   const statusColor = reachable ? '#43cf65' : status === 'provisioning' || status === 'queued' ? '#f6a94a' : '#ff5156';
   const nextRotationAt = node?.nextRotationAt || connection.nextRotationAt;
-  return <article className="relative overflow-hidden rounded-xl border border-[#34404b] bg-[#171d23] px-3.5 py-3 text-slate-200 shadow-[0_8px_22px_rgba(20,32,55,.12)]">
-    <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: statusColor }} />
-    <div className="flex items-center gap-1.5 pl-1">
-      <span className="mono text-[10px] font-bold text-slate-500">#{node?.id || order.id}</span>
+  return <article className="relative overflow-hidden rounded-xl border border-[#34404b] bg-[#171d23] px-3 py-2.5 text-slate-200 shadow-[0_8px_22px_rgba(20,32,55,.12)]">
+    <span className="absolute inset-y-0 left-0 w-0.5" style={{ backgroundColor: statusColor }} />
+    <div className="flex items-center gap-1.5 pl-0.5">
+      <span className="mono text-[9px] font-bold text-slate-500">#{node?.id || order.id}</span>
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
-      <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
-      <span className="text-[9px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
-      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 text-[9px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} />{restarting ? 'Restarting' : 'Restart'}</button>}
+      <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
+      <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 text-[8px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={9} />{restarting ? 'Restarting' : 'Restart'}</button>}
     </div>
-    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2.5">
-      <div className="flex items-center justify-between gap-2"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy string</p><button onClick={() => void copy(connectionString, 'proxy')} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-[#ff5156] px-2 text-[9px] font-bold text-white hover:bg-[#ff696d]" data-testid={`button-copy-proxy-${node?.id || order.id}`}><Copy size={10} />{copied === 'proxy' ? 'Copied' : 'Copy proxy'}</button></div>
-      <code className="mono mt-2 block break-all text-[10px] leading-4 text-[#43d6dc]">{connectionString}</code>
+    <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">
+      <div className="flex items-center justify-between gap-2"><p className="text-[8px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy</p><button onClick={() => void copy(connectionString)} className="inline-flex h-6 shrink-0 items-center gap-1 rounded bg-[#ff5156] px-1.5 text-[8px] font-bold text-white hover:bg-[#ff696d]" data-testid={`button-copy-proxy-${node?.id || order.id}`}><Copy size={9} />{copied ? 'Copied' : 'Copy'}</button></div>
+      <code className="mono mt-1.5 block break-all text-[9px] leading-3.5 text-[#43d6dc]">{connectionString}</code>
     </div>
-    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-      <div className="min-w-0 rounded-lg bg-white/5 p-2.5"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">Username</p><div className="mt-1.5 flex items-center gap-2"><code className="mono min-w-0 flex-1 break-all text-[10px] text-slate-200">{connection.username}</code><button onClick={() => void copy(connection.username, 'username')} aria-label="Copy proxy username" className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 text-[9px] font-bold text-white hover:bg-white/20"><Copy size={10} />{copied === 'username' ? 'Copied' : 'Copy'}</button></div></div>
-      <div className="min-w-0 rounded-lg bg-white/5 p-2.5"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">Password</p><div className="mt-1.5 flex items-center gap-2"><code className="mono min-w-0 flex-1 break-all text-[10px] text-slate-200">{connection.password}</code><button onClick={() => void copy(connection.password, 'password')} aria-label="Copy proxy password" className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 text-[9px] font-bold text-white hover:bg-white/20"><Copy size={10} />{copied === 'password' ? 'Copied' : 'Copy'}</button></div></div>
-    </div>
-    <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pl-1 pt-2.5 text-[10px] leading-4">
+    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-white/10 pl-0.5 pt-2 text-[9px] leading-3.5">
       <p className="min-w-0 text-slate-500">Protocol <strong className="ml-1 text-slate-300">{connection.protocol}</strong></p>
       <p className="text-slate-500">Port <strong className="ml-1 text-slate-300">{connection.port}</strong></p>
       <p className="min-w-0 text-slate-500">Egress <strong className="ml-1 break-all text-slate-300">{node?.egressIp || connection.host}</strong></p>
@@ -225,7 +221,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
       <p className="text-slate-500">Uptime <strong className="ml-1 text-slate-300">{compactDuration(now - activatedAt)}</strong></p>
       <p className="text-slate-500">Rotation <strong className="ml-1 text-slate-300">{nextRotationAt ? compactDuration(new Date(nextRotationAt).getTime() - now) : '—'}</strong></p>
     </div>
-    {expiresAt && <div className="mt-2.5 pl-1"><div className="h-1 overflow-hidden rounded-full bg-[#323a43]"><div className="h-full rounded-full bg-[#35bd58] transition-[width] duration-1000" style={{ width: `${100 - progress}%` }} /></div><div className="mt-1 flex justify-between gap-2 text-[9px] text-slate-500"><span>{date(order.expiresAt)}</span><span>Expires in {compactDuration(remaining)}</span></div></div>}
+    {expiresAt && <div className="mt-2 pl-0.5"><div className="h-0.5 overflow-hidden rounded-full bg-[#323a43]"><div className="h-full rounded-full bg-[#35bd58] transition-[width] duration-1000" style={{ width: `${100 - progress}%` }} /></div><div className="mt-1 flex justify-between gap-2 text-[8px] text-slate-500"><span>{date(order.expiresAt)}</span><span>Expires in {compactDuration(remaining)}</span></div></div>}
   </article>;
 }
 
@@ -256,18 +252,18 @@ function ProxyNodeStatusCard({ node, onRestart, restarting }: { node: RuntimePro
   const healthy = node.status === 'online' || node.status === 'degraded';
   const statusColor = healthy ? '#43cf65' : pending ? '#f6a94a' : '#ff5156';
   const endpoint = node.host && node.port ? `${node.host}:${node.port}` : 'Waiting for endpoint allocation';
-  return <article className="relative overflow-hidden rounded-xl border border-[#34404b] bg-[#171d23] px-4 py-4 text-slate-200 shadow-[0_8px_22px_rgba(20,32,55,.12)]">
-    <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: statusColor }} />
-    <div className="flex items-center gap-2 pl-1">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
-      <p className="min-w-0 flex-1 truncate text-xs font-bold">Node {node.id}</p>
-      <span className="text-[9px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{node.status.toUpperCase()}</span>
-      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 text-[9px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} />{restarting ? 'Restarting' : 'Restart'}</button>}
+  return <article className="relative overflow-hidden rounded-xl border border-[#34404b] bg-[#171d23] px-3 py-2.5 text-slate-200 shadow-[0_8px_22px_rgba(20,32,55,.12)]">
+    <span className="absolute inset-y-0 left-0 w-0.5" style={{ backgroundColor: statusColor }} />
+    <div className="flex items-center gap-1.5 pl-0.5">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
+      <p className="min-w-0 flex-1 truncate text-[10px] font-bold">Node {node.id}</p>
+      <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{node.status.toUpperCase()}</span>
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 text-[8px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={9} />{restarting ? 'Restarting' : 'Restart'}</button>}
     </div>
-    <p className="mono mt-3 break-all pl-1 text-[10px] text-[#43d6dc]">{endpoint}</p>
-    <p className="mt-3 border-t border-white/10 pl-1 pt-3 text-[10px] text-slate-500">Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
-    {node.errorMessage && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-[10px] leading-4 text-red-300">{node.errorMessage}</p>}
-    {!healthy && !node.errorMessage && <p className="mt-3 text-[10px] leading-4 text-slate-500">Connection credentials will appear when this node and its order are active.</p>}
+    <p className="mono mt-2 break-all pl-0.5 text-[9px] text-[#43d6dc]">{endpoint}</p>
+    <p className="mt-2 border-t border-white/10 pl-0.5 pt-2 text-[9px] text-slate-500">Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
+    {node.errorMessage && <p className="mt-2 rounded-md bg-red-500/10 px-2 py-1.5 text-[9px] leading-3.5 text-red-300">{node.errorMessage}</p>}
+    {!healthy && !node.errorMessage && <p className="mt-2 text-[9px] leading-3.5 text-slate-500">Connection credentials will appear when this node and its order are active.</p>}
   </article>;
 }
 
@@ -865,7 +861,7 @@ function ClientPortalPage() {
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Active nodes" value={String(liveNodeCount)} detail="Synced by live status stream" icon={Network} tone="teal" /><Metric label="Requests today" value={(overview.data?.requestsToday || 0).toLocaleString()} detail="Proxy traffic" icon={Activity} tone="orange" /><Metric label="Success rate" value={`${overview.data?.successRate ?? 100}%`} detail="Last 24 hours" icon={Signal} tone="teal" /><Metric label="Proxy orders" value={String(orders.data?.length || 0)} detail="Account history" icon={Gauge} tone="orange" /></section>
 
       <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title="My proxy nodes" body="Every order can contain multiple nodes, all using the same account username and password." />
-        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-2 flex items-center justify-between px-1"><p className="truncate text-xs font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[9px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
+        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
       </section>
 
       <section id="catalog" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="proxy catalog" title="SOCKS5 by country" body="Compare countries and create an order directly from the table." /><State loading={products.isLoading} error={products.isError} onRetry={() => products.refetch()} empty={!services.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">Country</th><th className="px-4 py-3">Proxy service</th><th className="px-4 py-3">Price / node</th><th className="px-3 py-3">Nodes</th><th className="px-3 py-3">Days</th><th className="px-3 py-3">Payment</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Action</th></tr></thead><tbody>{services.map(service => <ProxyOrderForm key={service.id} product={service} />)}</tbody></table></div></State></section>
