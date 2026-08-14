@@ -48,7 +48,7 @@ export class CreateProductDto {
   @IsIn(['automatic', 'manual', 'service']) fulfillmentType: 'automatic' | 'manual' | 'service';
   @IsString() @Length(2, 50) serviceType: string;
   @IsOptional() @IsString() @Matches(/^[A-Z]{2}$/) countryCode?: string;
-  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) basePrice: number;
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice: number;
   @IsString() @Matches(/^[A-Z]{3}$/) currency: string;
   @IsOptional() @IsInt() @Min(0) stockQuantity?: number;
   @IsOptional() @IsString() @Length(0, 1000) imageUrl?: string;
@@ -66,7 +66,7 @@ export class UpdateProductDto {
   @IsOptional() @IsIn(['automatic', 'manual', 'service']) fulfillmentType?: 'automatic' | 'manual' | 'service';
   @IsOptional() @IsString() @Length(2, 50) serviceType?: string;
   @IsOptional() @IsString() @Matches(/^[A-Z]{2}$/) countryCode?: string;
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) basePrice?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice?: number;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
   @IsOptional() @IsInt() @Min(0) stockQuantity?: number;
   @IsOptional() @IsString() @Length(0, 1000) imageUrl?: string;
@@ -100,7 +100,7 @@ export class CreateProviderApiKeyDto {
 }
 
 export class UpdateProxyPriceDto {
-  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) basePrice: number;
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice: number;
   @IsString() @Matches(/^[A-Z]{3}$/) currency: string;
 }
 

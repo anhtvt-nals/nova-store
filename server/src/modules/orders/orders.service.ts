@@ -21,7 +21,7 @@ export class OrdersService {
     const rateResult = await this.db.client.from('app_settings').select('value').eq('key', 'credits_per_usd').maybeSingle();
     const rateRow = this.db.unwrap(rateResult, 'Unable to load credit conversion');
     const creditsPerUsd = Number(rateRow?.value) > 0 ? Number(rateRow?.value) : 100;
-    const total = Number((unitPrice * dto.nodeCount * dto.rentalDays).toFixed(2));
+    const total = Number((unitPrice * dto.nodeCount * dto.rentalDays).toFixed(4));
     return {
       unitPrice,
       nodeCount: dto.nodeCount,
