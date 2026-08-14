@@ -37,6 +37,15 @@ export class ProvisioningRepository {
     return rows.map(row => ({ jobId: Number(row.scheduled_job_id), nodeId: Number(row.scheduled_node_id) }));
   }
 
+  async recoverStalledRotations(batchSize: number) {
+    const result = await this.db.client.rpc('recover_stalled_proxy_rotations', { batch_size: batchSize });
+    const rows = this.db.unwrap(result, 'Unable to recover stalled proxy rotations') as Array<{
+      recovered_node_id: number;
+      recovery_action: string;
+    }>;
+    return rows.map(row => ({ nodeId: Number(row.recovered_node_id), action: row.recovery_action }));
+  }
+
   async enqueueExpiredTerminations(batchSize: number) {
     const result = await this.db.client.rpc('enqueue_expired_proxy_terminations', { batch_size: batchSize });
     const rows = this.db.unwrap(result, 'Unable to schedule expired order cleanups') as Array<{

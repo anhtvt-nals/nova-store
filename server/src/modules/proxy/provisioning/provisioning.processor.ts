@@ -86,6 +86,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     try {
       const configuredBatchSize = Number(this.config.get('PROXY_ROTATION_BATCH_SIZE') || 100);
       const batchSize = Math.max(1, Math.min(500, Number.isFinite(configuredBatchSize) ? configuredBatchSize : 100));
+      const recovered = await this.repository.recoverStalledRotations(batchSize);
+      if (recovered.length > 0) {
+        this.logger.warn(`Recovered ${recovered.length} stalled proxy rotation${recovered.length === 1 ? '' : 's'}`);
+      }
       const scheduled = await this.repository.enqueueDueRotations(batchSize);
       if (scheduled.length > 0) {
         this.logger.log(`Scheduled ${scheduled.length} due proxy rotation${scheduled.length === 1 ? '' : 's'}`);
@@ -103,7 +107,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     try {
       const concurrency = Math.max(1, Number(this.config.get('PROXY_PROVISIONING_CONCURRENCY') || 2));
       while (this.active < concurrency && !this.stopped) {
-        const job = await this.repository.claim(this.workerId, 180);
+        const job = await this.repository.claim(this.workerId, this.provisioningLockSeconds());
         if (!job) break;
         this.active += 1;
         void this.process(job).finally(() => { this.active -= 1; });
@@ -120,11 +124,12 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     let providerId: number | null = null;
     let providerApiKey = '';
     let providerDriver = '';
+    const lockSeconds = this.provisioningLockSeconds();
     const leaseHeartbeat = setInterval(() => {
-      void this.repository.renewLease(job.id, this.workerId, 180).then(owned => {
+      void this.repository.renewLease(job.id, this.workerId, lockSeconds).then(owned => {
         if (!owned) this.logger.error(`Lost provisioning lease for job ${job.id}`);
       }).catch(error => this.logger.error(`Could not renew job ${job.id}: ${error instanceof Error ? error.message : error}`));
-    }, 60_000);
+    }, Math.max(10_000, Math.floor(lockSeconds * 500)));
     try {
       if (job.action === 'terminate') {
         await this.terminate(job);
@@ -329,5 +334,11 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       throw new Error('GOST_NODE_MAX_CONNECTIONS must be a non-negative integer');
     }
     return value > 0 ? value : null;
+  }
+
+  private provisioningLockSeconds() {
+    const value = Number(this.config.get('PROXY_PROVISIONING_LOCK_SECONDS') || 60);
+    if (!Number.isFinite(value)) return 60;
+    return Math.max(30, Math.min(300, Math.floor(value)));
   }
 }
