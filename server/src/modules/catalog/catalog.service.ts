@@ -27,6 +27,17 @@ export class CatalogService {
     }));
   }
 
+  async settings() {
+    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'usd_to_idr_rate']);
+    const rows = this.db.unwrap(result, 'Unable to load catalog settings');
+    const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
+    const usdToIdrRate = Number(values.usd_to_idr_rate);
+    return {
+      brandName: String(values.site_name || 'Nodenesia'),
+      usdToIdrRate: Number.isFinite(usdToIdrRate) && usdToIdrRate > 0 ? usdToIdrRate : 16000,
+    };
+  }
+
   async resources() {
     const result = await this.db.client.from('resources').select('id,product_id,name,region,status,capabilities,health').eq('is_public', true).order('name');
     return this.db.unwrap(result, 'Unable to load resources').map(mapResource);

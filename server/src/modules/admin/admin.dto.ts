@@ -102,4 +102,5 @@ export class UpdateGeneralSettingsDto {
   @IsString() @Length(2, 100) siteName: string;
   @IsOptional() @IsEmail() supportEmail?: string;
   @IsString() @Matches(/^[A-Z]{3}$/) defaultCurrency: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(1) usdToIdrRate: number;
 }

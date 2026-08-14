@@ -268,10 +268,16 @@ export class AdminService {
   }
 
   async generalSettings() {
-    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'support_email', 'default_currency']);
+    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'support_email', 'default_currency', 'usd_to_idr_rate']);
     const rows = this.db.unwrap(result, 'Unable to load settings');
     const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
-    return { siteName: String(values.site_name || 'Proxy Node'), supportEmail: String(values.support_email || ''), defaultCurrency: String(values.default_currency || 'USD') };
+    const usdToIdrRate = Number(values.usd_to_idr_rate);
+    return {
+      siteName: String(values.site_name || 'Nodenesia'),
+      supportEmail: String(values.support_email || ''),
+      defaultCurrency: String(values.default_currency || 'USD'),
+      usdToIdrRate: Number.isFinite(usdToIdrRate) && usdToIdrRate > 0 ? usdToIdrRate : 16000,
+    };
   }
 
   async updateGeneralSettings(dto: UpdateGeneralSettingsDto) {
@@ -279,6 +285,7 @@ export class AdminService {
       { key: 'site_name', value: dto.siteName },
       { key: 'support_email', value: dto.supportEmail || '' },
       { key: 'default_currency', value: dto.defaultCurrency },
+      { key: 'usd_to_idr_rate', value: dto.usdToIdrRate },
     ];
     const result = await this.db.client.from('app_settings').upsert(rows, { onConflict: 'key' });
     if (result.error) throw result.error;

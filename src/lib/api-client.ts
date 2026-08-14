@@ -242,6 +242,11 @@ export interface GeneralSettings {
   siteName: string;
   supportEmail: string;
   defaultCurrency: string;
+  usdToIdrRate: number;
+}
+export interface CatalogSettings {
+  brandName: string;
+  usdToIdrRate: number;
 }
 
 type QueryConfig<T> = { query?: Omit<UseQueryOptions<T, Error>, 'queryKey' | 'queryFn'> & { queryKey?: readonly unknown[] } };
@@ -283,6 +288,7 @@ const query = <T>(key: readonly unknown[], path: string, getToken: TokenGetter |
 
 export const getListPlansQueryKey = () => ['plans'] as const;
 export const getListProductsQueryKey = () => ['catalog-products'] as const;
+export const getCatalogSettingsQueryKey = () => ['catalog-settings'] as const;
 export const getListNodesQueryKey = () => ['nodes'] as const;
 export const getListClientProxyNodesQueryKey = () => ['client-proxy-nodes'] as const;
 export const getGetClientOverviewQueryKey = () => ['client-overview'] as const;
@@ -306,6 +312,9 @@ export function useListPlans(config?: QueryConfig<Plan[]>) {
 }
 export function useListProducts(config?: QueryConfig<CatalogProduct[]>) {
   return query(getListProductsQueryKey(), '/catalog/products', undefined, config);
+}
+export function useCatalogSettings(config?: QueryConfig<CatalogSettings>) {
+  return query(getCatalogSettingsQueryKey(), '/catalog/settings', undefined, config);
 }
 export function useListNodes(_params?: unknown, config?: QueryConfig<ProxyNode[]>) {
   return query(getListNodesQueryKey(), '/catalog/resources', undefined, config);
@@ -495,6 +504,6 @@ export function useRevokeProviderApiKey(options?: MutationConfig<void, { id: num
 export function useUpdateProxyPrice(options?: MutationConfig<ProxyPriceSetting, { id: number; data: { basePrice: number; currency: string } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<ProxyPriceSetting>(`/admin/proxy/settings/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
 }
-export function useUpdateGeneralSettings(options?: MutationConfig<GeneralSettings, { data: { siteName: string; supportEmail?: string; defaultCurrency: string } }>) {
+export function useUpdateGeneralSettings(options?: MutationConfig<GeneralSettings, { data: { siteName: string; supportEmail?: string; defaultCurrency: string; usdToIdrRate: number } }>) {
   return useMutation({ mutationFn: ({ data }) => request<GeneralSettings>('/admin/settings', getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
 }
