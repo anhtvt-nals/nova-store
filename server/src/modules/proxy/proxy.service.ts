@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import type { ReportProxyNodeStatusDto } from './proxy.dto';
 
@@ -9,30 +9,38 @@ export class ProxyService {
   async listForUser(profileId: number) {
     const result = await this.db.client
       .from('proxy_nodes')
-      .select('id,order_id,status,public_host,tunnel_port,egress_ip,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_code,error_message,health,proxy_providers(name)')
+      .select('id,order_id,status,public_host,tunnel_port,egress_ip,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_message')
       .eq('profile_id', profileId)
       .neq('status', 'terminated')
       .order('created_at', { ascending: false });
 
-    return this.db.unwrap(result, 'Unable to load proxy nodes').map((row: any) => {
-      const provider = Array.isArray(row.proxy_providers) ? row.proxy_providers[0] : row.proxy_providers;
-      return {
+    return this.db.unwrap(result, 'Unable to load proxy nodes').map((row: any) => ({
         id: row.id,
         orderId: row.order_id,
         status: row.status,
         host: row.public_host,
         port: row.tunnel_port,
         egressIp: row.egress_ip,
-        providerName: provider?.name || null,
         lastHealthAt: row.last_health_at,
         lastStatusChangeAt: row.last_status_change_at,
         nextRotationAt: row.next_rotation_at,
         expiresAt: row.expires_at,
-        errorCode: row.error_code,
-        errorMessage: row.error_message,
-        health: row.health || {},
-      };
+        errorMessage: row.error_message ? 'Node provisioning failed. Please contact support.' : null,
+      }));
+  }
+
+  async restartForUser(profileId: number, nodeId: number) {
+    const result = await this.db.client.rpc('request_proxy_node_restart', {
+      target_node_id: nodeId,
+      target_profile_id: profileId,
     });
+    if (result.error) {
+      const message = result.error.message;
+      if (message.includes('Proxy node not found')) throw new NotFoundException('Proxy node not found');
+      if (message.includes('already in progress') || message.includes('cooling down')) throw new ConflictException(message);
+      throw new BadRequestException(message);
+    }
+    return { jobId: Number(result.data), nodeId, status: 'rotating' as const };
   }
 
   async reportStatus(nodeId: number, dto: ReportProxyNodeStatusDto) {
@@ -52,4 +60,3 @@ export class ProxyService {
     return { eventId: this.db.unwrap(result, 'Unable to update proxy node status') as number };
   }
 }
-

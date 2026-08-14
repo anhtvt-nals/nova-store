@@ -78,8 +78,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       }).catch(error => this.logger.error(`Could not renew job ${job.id}: ${error instanceof Error ? error.message : error}`));
     }, 60_000);
     try {
-      const context = await this.repository.context(job.node_id);
-      const capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId);
+      if (job.action === 'terminate') throw new Error('Terminate jobs are not supported by this processor');
+      const replacing = job.action === 'replace';
+      const context = await this.repository.context(job.node_id, job.action);
+      const capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, replacing ? 'replacement' : 'customer');
       providerId = capacity.providerId;
       const firstPort = Number(this.config.get('GOST_TUNNEL_PORT_MIN') || 30000);
       const lastPort = Number(this.config.get('GOST_TUNNEL_PORT_MAX') || 39999);
@@ -91,13 +93,28 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         firstPort,
         lastPort,
       );
+      const accountCredential = await this.credentials.getOrCreate(context.profileId);
+
+      if (replacing && context.currentInstanceId) {
+        if (!context.providerId || !context.providerApiKeyId) throw new Error('Existing proxy instance has no provider assignment');
+        const oldProviderConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
+        const oldProviderApiKey = this.secrets.decryptProviderKey(oldProviderConfig.key);
+        const oldProvider = this.providers.get(oldProviderConfig.driver);
+        await oldProvider.terminateInstance(context.currentInstanceId, oldProviderApiKey);
+        await this.repository.markInstanceStopped(context.providerId, context.currentInstanceId, 'stopped');
+        await this.health.waitUntilUnavailable(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
+        await this.repository.clearReplacedInstance(context.nodeId, context.currentInstanceId);
+      }
+      if (replacing) await this.repository.releaseCustomerCapacity(context.nodeId);
+
       const providerConfig = await this.repository.provider(capacity.providerId, capacity.apiKeyId);
       providerDriver = providerConfig.driver;
       providerApiKey = this.secrets.decryptProviderKey(providerConfig.key);
       const provider = this.providers.get(providerDriver);
-      const accountCredential = await this.credentials.getOrCreate(context.profileId);
-      await this.repository.assignProvider(context.nodeId, capacity.providerId, capacity.apiKeyId);
-      await this.proxy.reportStatus(context.nodeId, { status: 'provisioning' });
+      if (!replacing) {
+        await this.repository.assignProvider(context.nodeId, capacity.providerId, capacity.apiKeyId);
+        await this.proxy.reportStatus(context.nodeId, { status: 'provisioning' });
+      }
 
       const ttlMinutes = Math.max(15, Number(this.config.get('E2B_SANDBOX_TIMEOUT_MINUTES') || 60));
       const renewBeforeMinutes = Math.max(1, Math.min(ttlMinutes - 1, Number(this.config.get('E2B_RENEW_BEFORE_MINUTES') || 10)));
@@ -136,17 +153,29 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         externalInstanceId: instance.externalInstanceId,
         expiresAt: sandboxExpiresAt,
       });
-      await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
-      await this.repository.complete({
-        jobId: job.id,
-        workerId: this.workerId,
-        externalInstanceId: instance.externalInstanceId,
-        egressIp: instance.egressIp || null,
-        publicHost: endpoint.publicHost,
-        tunnelPort: endpoint.tunnelPort,
-        nextRotationAt,
-      });
-      this.logger.log(`Node ${context.nodeId} provisioned on ${providerDriver}/${instance.externalInstanceId}`);
+      const configuredReplacementTimeout = Number(this.config.get('GOST_REPLACEMENT_READY_TIMEOUT_MS') || 60000);
+      const readyTimeout = replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
+      await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
+      if (replacing) {
+        await this.repository.completeReplacement({
+          jobId: job.id,
+          workerId: this.workerId,
+          externalInstanceId: instance.externalInstanceId,
+          egressIp: instance.egressIp || null,
+          nextRotationAt,
+        });
+      } else {
+        await this.repository.complete({
+          jobId: job.id,
+          workerId: this.workerId,
+          externalInstanceId: instance.externalInstanceId,
+          egressIp: instance.egressIp || null,
+          publicHost: endpoint.publicHost,
+          tunnelPort: endpoint.tunnelPort,
+          nextRotationAt,
+        });
+      }
+      this.logger.log(`Node ${context.nodeId} ${replacing ? 'replaced' : 'provisioned'} on ${providerDriver}/${instance.externalInstanceId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (instance && providerApiKey && providerDriver) {
@@ -154,7 +183,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           .then(() => true).catch(() => false);
         if (providerId) await this.repository.markInstanceStopped(providerId, instance.externalInstanceId, terminated ? 'stopped' : 'error').catch(() => undefined);
       }
-      await this.repository.fail(job.id, this.workerId, message, Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1))).catch(failError =>
+      const recordFailure = job.action === 'replace'
+        ? this.repository.failReplacement(job.id, this.workerId, message, Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1)))
+        : this.repository.fail(job.id, this.workerId, message, Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1)));
+      await recordFailure.catch(failError =>
         this.logger.error(`Could not record failure for job ${job.id}: ${failError instanceof Error ? failError.message : failError}`)
       );
       this.logger.warn(`Provisioning job ${job.id} failed: ${message}`);

@@ -45,14 +45,11 @@ export interface RuntimeProxyNode {
   host: string | null;
   port: number | null;
   egressIp: string | null;
-  providerName: string | null;
   lastHealthAt: string | null;
   lastStatusChangeAt: string;
   nextRotationAt: string | null;
   expiresAt: string | null;
-  errorCode: string | null;
   errorMessage: string | null;
-  health: Record<string, unknown>;
 }
 export interface ProxyNodeStreamEvent {
   id?: string;
@@ -437,6 +434,9 @@ export function useGeneralSettings(config?: QueryConfig<GeneralSettings>) {
 
 export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<Order>('/orders', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
+  return useMutation({ mutationFn: ({ id }) => request(`/client/proxy/nodes/${id}/restart`, getAccessToken, { method: 'POST' }), ...options });
 }
 export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string; password?: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<User>('/admin/users', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });

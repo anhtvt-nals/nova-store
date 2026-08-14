@@ -8,7 +8,7 @@ import {
 import {
   useCreateCategory, useCreateOrder, useCreateProduct, useCreateSandboxKey, useCreateUser,
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
-  useCurrentUser, useOrderQuote,
+  useCurrentUser, useOrderQuote, useRestartProxyNode,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, useListAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
   useProxySettings, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
@@ -166,8 +166,9 @@ const compactDuration = (milliseconds: number) => {
   return [days ? `${days}d` : '', hours || days ? `${hours}h` : '', `${minutes}m`, `${remainingSeconds}s`].filter(Boolean).join(' ');
 };
 
-function CompactNodeCard({ order, connection, node }: { order: Order; connection: ConnectionDetails; node?: RuntimeProxyNode }) {
+function CompactNodeCard({ order, connection, node, onRestart, restarting }: { order: Order; connection: ConnectionDetails; node?: RuntimeProxyNode; onRestart?: () => void; restarting?: boolean }) {
   const [now, setNow] = useState(Date.now());
+  const [copied, setCopied] = useState<'proxy' | 'username' | 'password' | null>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -177,11 +178,25 @@ function CompactNodeCard({ order, connection, node }: { order: Order; connection
   const total = expiresAt ? Math.max(1, expiresAt - activatedAt) : 1;
   const remaining = expiresAt ? Math.max(0, expiresAt - now) : 0;
   const progress = expiresAt ? Math.min(100, Math.max(0, ((now - activatedAt) / total) * 100)) : 0;
-  const endpoint = `${connection.protocol.toLowerCase()}://${connection.host}:${connection.port}`;
   const connectionString = `${connection.protocol.toLowerCase()}://${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}`;
-  const copy = (value: string) => void navigator.clipboard?.writeText(value);
+  const copy = async (value: string, field: 'proxy' | 'username' | 'password') => {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+    else {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copiedSuccessfully = document.execCommand('copy');
+      textarea.remove();
+      if (!copiedSuccessfully) throw new Error('Clipboard is unavailable');
+    }
+    setCopied(field);
+    window.setTimeout(() => setCopied(current => current === field ? null : current), 1500);
+  };
   const status = node?.status || 'online';
-  const reachable = ['online', 'rotating', 'degraded'].includes(status);
+  const reachable = ['online', 'degraded'].includes(status);
   const statusLabel = status === 'online' ? 'READY' : status.toUpperCase();
   const statusColor = reachable ? '#43cf65' : status === 'provisioning' || status === 'queued' ? '#f6a94a' : '#ff5156';
   const nextRotationAt = node?.nextRotationAt || connection.nextRotationAt;
@@ -192,9 +207,16 @@ function CompactNodeCard({ order, connection, node }: { order: Order; connection
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
       <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
       <span className="text-[9px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
-      <button onClick={() => copy(connectionString)} title="Copy endpoint with username and password" aria-label="Copy full proxy connection string" className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#ff5156] text-white transition hover:bg-[#ff696d]" data-testid={`button-copy-endpoint-${node?.id || order.id}`}><Copy size={11} /></button>
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 text-[9px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} />{restarting ? 'Restarting' : 'Restart'}</button>}
     </div>
-    <button onClick={() => copy(connectionString)} className="mono mt-2 block w-full break-all pl-1 text-left text-[9px] leading-3 font-medium tracking-[-.01em] text-[#43d6dc] hover:text-[#79edf1]" title="Copy endpoint with username and password">{endpoint}</button>
+    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2.5">
+      <div className="flex items-center justify-between gap-2"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy string</p><button onClick={() => void copy(connectionString, 'proxy')} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-[#ff5156] px-2 text-[9px] font-bold text-white hover:bg-[#ff696d]" data-testid={`button-copy-proxy-${node?.id || order.id}`}><Copy size={10} />{copied === 'proxy' ? 'Copied' : 'Copy proxy'}</button></div>
+      <code className="mono mt-2 block break-all text-[10px] leading-4 text-[#43d6dc]">{connectionString}</code>
+    </div>
+    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <div className="min-w-0 rounded-lg bg-white/5 p-2.5"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">Username</p><div className="mt-1.5 flex items-center gap-2"><code className="mono min-w-0 flex-1 break-all text-[10px] text-slate-200">{connection.username}</code><button onClick={() => void copy(connection.username, 'username')} aria-label="Copy proxy username" className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 text-[9px] font-bold text-white hover:bg-white/20"><Copy size={10} />{copied === 'username' ? 'Copied' : 'Copy'}</button></div></div>
+      <div className="min-w-0 rounded-lg bg-white/5 p-2.5"><p className="text-[9px] font-bold uppercase tracking-[.1em] text-slate-500">Password</p><div className="mt-1.5 flex items-center gap-2"><code className="mono min-w-0 flex-1 break-all text-[10px] text-slate-200">{connection.password}</code><button onClick={() => void copy(connection.password, 'password')} aria-label="Copy proxy password" className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 text-[9px] font-bold text-white hover:bg-white/20"><Copy size={10} />{copied === 'password' ? 'Copied' : 'Copy'}</button></div></div>
+    </div>
     <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pl-1 pt-2.5 text-[10px] leading-4">
       <p className="min-w-0 text-slate-500">Protocol <strong className="ml-1 text-slate-300">{connection.protocol}</strong></p>
       <p className="text-slate-500">Port <strong className="ml-1 text-slate-300">{connection.port}</strong></p>
@@ -204,22 +226,32 @@ function CompactNodeCard({ order, connection, node }: { order: Order; connection
       <p className="text-slate-500">Rotation <strong className="ml-1 text-slate-300">{nextRotationAt ? compactDuration(new Date(nextRotationAt).getTime() - now) : '—'}</strong></p>
     </div>
     {expiresAt && <div className="mt-2.5 pl-1"><div className="h-1 overflow-hidden rounded-full bg-[#323a43]"><div className="h-full rounded-full bg-[#35bd58] transition-[width] duration-1000" style={{ width: `${100 - progress}%` }} /></div><div className="mt-1 flex justify-between gap-2 text-[9px] text-slate-500"><span>{date(order.expiresAt)}</span><span>Expires in {compactDuration(remaining)}</span></div></div>}
-    <details className="mt-2 border-t border-white/10 pl-1 pt-2 text-[10px]"><summary className="cursor-pointer select-none font-bold text-slate-500 hover:text-white">Credentials</summary><div className="mt-1.5 grid gap-1.5 sm:grid-cols-2"><button onClick={() => copy(connection.username)} title={connection.username} className="flex min-w-0 items-center justify-between rounded-md bg-white/5 px-2 py-1.5 text-left hover:bg-white/10"><span className="mono truncate text-[9px] text-slate-300">{connection.username}</span><Copy className="shrink-0" size={10} /></button><button onClick={() => copy(connection.password)} className="flex items-center justify-between rounded-md bg-white/5 px-2 py-1.5 text-left hover:bg-white/10"><span className="mono text-[9px] text-slate-300">••••••••</span><Copy size={10} /></button></div></details>
   </article>;
 }
 
 function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode }) {
+  const qc = useQueryClient();
+  const restart = useRestartProxyNode();
+  const orderIsActive = order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date());
+  const canRestart = orderIsActive && ['online', 'degraded', 'offline', 'error'].includes(node.status);
   const canLoadConnection = order.status === 'active'
     && (!order.expiresAt || new Date(order.expiresAt) > new Date())
     && ['online', 'rotating', 'degraded'].includes(node.status);
   const connection = useGetOrderConnection(order.id, node.id, {
     query: { enabled: canLoadConnection, queryKey: getGetOrderConnectionQueryKey(order.id, node.id) },
   });
-  if (!canLoadConnection) return <ProxyNodeStatusCard node={node} />;
-  return <State loading={connection.isLoading} error={connection.isError} onRetry={() => connection.refetch()}>{connection.data && <CompactNodeCard order={order} connection={connection.data} node={node} />}</State>;
+  const requestRestart = () => {
+    if (!canRestart || !window.confirm(`Restart node ${node.id}? The proxy will be temporarily unavailable.`)) return;
+    restart.mutate({ id: node.id }, {
+      onSuccess: () => void qc.invalidateQueries({ queryKey: getListClientProxyNodesQueryKey() }),
+      onError: error => window.alert(error.message),
+    });
+  };
+  if (!canLoadConnection) return <ProxyNodeStatusCard node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;
+  return <State loading={connection.isLoading} error={connection.isError} onRetry={() => connection.refetch()}>{connection.data && <CompactNodeCard order={order} connection={connection.data} node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />}</State>;
 }
 
-function ProxyNodeStatusCard({ node }: { node: RuntimeProxyNode }) {
+function ProxyNodeStatusCard({ node, onRestart, restarting }: { node: RuntimeProxyNode; onRestart?: () => void; restarting?: boolean }) {
   const pending = node.status === 'queued' || node.status === 'provisioning' || node.status === 'rotating';
   const healthy = node.status === 'online' || node.status === 'degraded';
   const statusColor = healthy ? '#43cf65' : pending ? '#f6a94a' : '#ff5156';
@@ -230,12 +262,10 @@ function ProxyNodeStatusCard({ node }: { node: RuntimeProxyNode }) {
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
       <p className="min-w-0 flex-1 truncate text-xs font-bold">Node {node.id}</p>
       <span className="text-[9px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{node.status.toUpperCase()}</span>
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 text-[9px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} />{restarting ? 'Restarting' : 'Restart'}</button>}
     </div>
     <p className="mono mt-3 break-all pl-1 text-[10px] text-[#43d6dc]">{endpoint}</p>
-    <div className="mt-3 grid gap-1.5 border-t border-white/10 pl-1 pt-3 text-[10px] text-slate-500 sm:grid-cols-2">
-      <p>Provider <strong className="ml-1 text-slate-300">{node.providerName || 'Assigning…'}</strong></p>
-      <p>Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
-    </div>
+    <p className="mt-3 border-t border-white/10 pl-1 pt-3 text-[10px] text-slate-500">Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
     {node.errorMessage && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-[10px] leading-4 text-red-300">{node.errorMessage}</p>}
     {!healthy && !node.errorMessage && <p className="mt-3 text-[10px] leading-4 text-slate-500">Connection credentials will appear when this node and its order are active.</p>}
   </article>;
@@ -816,6 +846,11 @@ function ClientPortalPage() {
     if (event.type.startsWith('proxy.node.')) {
       void qc.invalidateQueries({ queryKey: getGetClientOverviewQueryKey() });
       void qc.invalidateQueries({ queryKey: getListClientOrdersQueryKey() });
+      const orderId = Number(event.data.orderId);
+      const nodeId = Number(event.data.nodeId);
+      if (Number.isSafeInteger(orderId) && orderId > 0 && Number.isSafeInteger(nodeId) && nodeId > 0) {
+        void qc.invalidateQueries({ queryKey: getGetOrderConnectionQueryKey(orderId, nodeId) });
+      }
     }
   }), [qc]);
 

@@ -55,7 +55,7 @@ export class ProxyEventsService {
               subscriber.next({
                 id: String(event.id),
                 type: event.event_type,
-                data: { ...event.payload, createdAt: event.created_at },
+                data: { ...this.clientPayload(event.payload), createdAt: event.created_at },
                 retry: 3000,
               });
             }
@@ -86,5 +86,14 @@ export class ProxyEventsService {
         else this.activeByProfile.delete(profileId);
       };
     });
+  }
+
+  private clientPayload(payload: Record<string, unknown>) {
+    const allowedKeys = ['nodeId', 'orderId', 'status', 'egressIp', 'publicHost', 'tunnelPort', 'nextRotationAt'];
+    const clientPayload = Object.fromEntries(allowedKeys
+      .filter(key => payload[key] !== undefined)
+      .map(key => [key, payload[key]]));
+    if (payload.errorMessage) clientPayload.errorMessage = 'Node provisioning failed. Please contact support.';
+    return clientPayload;
   }
 }

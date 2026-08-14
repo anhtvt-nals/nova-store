@@ -4,6 +4,7 @@ import { DatabaseService } from '../../database/database.service';
 export interface ProvisioningJob {
   id: number;
   node_id: number;
+  action: 'provision' | 'replace' | 'terminate';
   attempts: number;
   max_attempts: number;
 }
@@ -27,31 +28,38 @@ export class ProvisioningRepository {
     return Boolean(this.db.unwrap(result, 'Unable to renew proxy provisioning lease'));
   }
 
-  async context(nodeId: number) {
+  async context(nodeId: number, action: ProvisioningJob['action']) {
     const result = await this.db.client.from('proxy_nodes')
-      .select('id,order_id,profile_id,public_host,tunnel_port,metadata,orders(id,rental_days,status)')
+      .select('id,order_id,profile_id,provider_id,provider_api_key_id,current_instance_id,public_host,tunnel_port,metadata,orders(id,rental_days,status,expires_at)')
       .eq('id', nodeId).maybeSingle();
     const row = this.db.unwrap(result, 'Unable to load proxy provisioning context') as any;
     if (!row) throw new Error('Proxy node not found');
     const order = Array.isArray(row.orders) ? row.orders[0] : row.orders;
-    if (!order || order.status !== 'provisioning') throw new Error('Order is not awaiting provisioning');
+    const validProvision = action === 'provision' && order?.status === 'provisioning';
+    const validReplacement = action === 'replace' && order?.status === 'active'
+      && order.expires_at && new Date(order.expires_at) > new Date();
+    if (!validProvision && !validReplacement) throw new Error(action === 'replace' ? 'Order is not active' : 'Order is not awaiting provisioning');
     return {
       nodeId: row.id as number,
       orderId: row.order_id as number,
       profileId: row.profile_id as number,
+      providerId: row.provider_id as number | null,
+      providerApiKeyId: row.provider_api_key_id as number | null,
+      currentInstanceId: row.current_instance_id as string | null,
       publicHost: row.public_host as string | null,
       tunnelPort: row.tunnel_port as number | null,
       rentalDays: Number(order.rental_days),
+      orderExpiresAt: order.expires_at as string | null,
       metadata: (row.metadata || {}) as Record<string, unknown>,
     };
   }
 
-  async reserveCapacity(nodeId: number, workerId: string) {
+  async reserveCapacity(nodeId: number, workerId: string, purpose: 'customer' | 'replacement') {
     const result = await this.db.client.rpc('reserve_provider_capacity', {
       target_node_id: nodeId,
       worker_id: workerId,
       lease_seconds: 600,
-      target_purpose: 'customer',
+      target_purpose: purpose,
     });
     const rows = this.db.unwrap(result, 'Unable to reserve provider capacity') as Array<{
       lease_id: string;
@@ -97,6 +105,29 @@ export class ProvisioningRepository {
       metadata: (provider.metadata || {}) as Record<string, unknown>,
       key,
     };
+  }
+
+  async providerForTermination(providerId: number, apiKeyId: number) {
+    const [providerResult, keyResult] = await Promise.all([
+      this.db.client.from('proxy_providers').select('id,code,metadata').eq('id', providerId).single(),
+      this.db.client.from('provider_api_keys').select('id,secret_ciphertext,secret_iv,secret_tag').eq('id', apiKeyId).single(),
+    ]);
+    const provider = this.db.unwrap(providerResult, 'Unable to load existing compute provider');
+    const key = this.db.unwrap(keyResult, 'Unable to load existing provider API key');
+    return { driver: String(provider.metadata?.driver || provider.code), key };
+  }
+
+  async clearReplacedInstance(nodeId: number, externalInstanceId: string) {
+    const nodeResult = await this.db.client.from('proxy_nodes').update({ current_instance_id: null })
+      .eq('id', nodeId).eq('current_instance_id', externalInstanceId);
+    if (nodeResult.error) throw nodeResult.error;
+  }
+
+  async releaseCustomerCapacity(nodeId: number) {
+    const leaseResult = await this.db.client.from('provider_capacity_leases')
+      .update({ status: 'released', released_at: new Date().toISOString() })
+      .eq('node_id', nodeId).eq('purpose', 'customer').is('released_at', null);
+    if (leaseResult.error) throw leaseResult.error;
   }
 
   async assignProvider(nodeId: number, providerId: number, apiKeyId: number) {
@@ -156,6 +187,17 @@ export class ProvisioningRepository {
     this.db.unwrap(result, 'Unable to complete proxy provisioning');
   }
 
+  async completeReplacement(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; nextRotationAt: Date }) {
+    const result = await this.db.client.rpc('complete_proxy_replacement', {
+      target_job_id: input.jobId,
+      worker_id: input.workerId,
+      external_instance_id: input.externalInstanceId,
+      reported_egress_ip: input.egressIp || null,
+      reported_next_rotation_at: input.nextRotationAt.toISOString(),
+    });
+    this.db.unwrap(result, 'Unable to complete proxy replacement');
+  }
+
   async fail(jobId: number, workerId: string, message: string, delaySeconds: number) {
     const result = await this.db.client.rpc('fail_proxy_provisioning', {
       target_job_id: jobId,
@@ -164,5 +206,15 @@ export class ProvisioningRepository {
       retry_delay_seconds: delaySeconds,
     });
     return this.db.unwrap(result, 'Unable to record proxy provisioning failure') as string;
+  }
+
+  async failReplacement(jobId: number, workerId: string, message: string, delaySeconds: number) {
+    const result = await this.db.client.rpc('fail_proxy_replacement', {
+      target_job_id: jobId,
+      worker_id: workerId,
+      failure_message: message,
+      retry_delay_seconds: delaySeconds,
+    });
+    return this.db.unwrap(result, 'Unable to record proxy replacement failure') as string;
   }
 }

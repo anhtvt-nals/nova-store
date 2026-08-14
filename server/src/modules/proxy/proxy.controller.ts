@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Sse } from '@nestjs/common';
+import { Controller, Get, Headers, Param, ParseIntPipe, Post, Sse } from '@nestjs/common';
 import type { Observable } from 'rxjs';
 import type { MessageEvent } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -18,6 +18,11 @@ export class ProxyController {
     return this.proxy.listForUser(user.profileId);
   }
 
+  @Post('nodes/:id/restart')
+  restartNode(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.proxy.restartForUser(user.profileId, id);
+  }
+
   @Sse('nodes/events')
   nodeEvents(
     @CurrentUser() user: AuthUser,
@@ -26,4 +31,3 @@ export class ProxyController {
     return this.events.stream(user.profileId, lastEventId);
   }
 }
-

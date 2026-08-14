@@ -48,5 +48,13 @@ export class SocksHealthService {
     }
     throw new Error(`SOCKS5 endpoint ${host}:${port} did not become reachable`);
   }
-}
 
+  async waitUntilUnavailable(host: string, port: number, username: string, password: string, timeoutMs = 60000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!(await this.check(host, port, username, password))) return;
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+    throw new Error(`Previous SOCKS5 endpoint ${host}:${port} did not shut down`);
+  }
+}
