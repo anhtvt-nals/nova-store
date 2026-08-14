@@ -43,6 +43,23 @@ export class ProxyService {
     return { jobId: Number(result.data), nodeId, status: 'rotating' as const };
   }
 
+  async recreateAllForUser(profileId: number) {
+    const result = await this.db.client.rpc('request_all_proxy_nodes_recreation', {
+      target_profile_id: profileId,
+    });
+    const rows = this.db.unwrap(result, 'Unable to request proxy node recreation') as Array<{
+      scheduled_job_id: number;
+      scheduled_node_id: number;
+    }>;
+    if (rows.length === 0) {
+      throw new ConflictException('No active proxy nodes are eligible for recreation');
+    }
+    return {
+      nodeIds: rows.map(row => Number(row.scheduled_node_id)),
+      status: 'rotating' as const,
+    };
+  }
+
   async reportStatus(nodeId: number, dto: ReportProxyNodeStatusDto) {
     const result = await this.db.client.rpc('report_proxy_node_status', {
       target_node_id: nodeId,

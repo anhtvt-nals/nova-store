@@ -8,7 +8,7 @@ import {
 import {
   useCreateCategory, useCreateOrder, useCreateProduct, useCreateSandboxKey, useCreateUser,
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
-  useCurrentUser, useOrderQuote, useRestartProxyNode,
+  useCurrentUser, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, useListAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
   useProxySettings, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
@@ -831,9 +831,16 @@ function ClientPortalPage() {
   const orders = useListClientOrders();
   const runtimeNodes = useListClientProxyNodes();
   const qc = useQueryClient();
+  const recreateAll = useRecreateAllProxyNodes();
   const activeOrders = (orders.data || []).filter(order => order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date()));
   const orderById = new Map((orders.data || []).map(order => [String(order.id), order]));
   const visibleNodes = (runtimeNodes.data || []).filter(node => orderById.has(String(node.orderId)) && node.status !== 'terminated');
+  const recreatableNodes = visibleNodes.filter(node => {
+    const order = orderById.get(String(node.orderId));
+    return order?.status === 'active'
+      && (!order.expiresAt || new Date(order.expiresAt) > new Date())
+      && ['online', 'degraded', 'offline', 'error'].includes(node.status);
+  });
   const services = (products.data || []).filter(product => product.serviceType === 'proxy');
 
   useEffect(() => subscribeToProxyNodeEvents(event => {
@@ -851,6 +858,19 @@ function ClientPortalPage() {
   }), [qc]);
 
   const liveNodeCount = runtimeNodes.data?.filter(node => ['online', 'rotating', 'degraded'].includes(node.status)).length ?? activeOrders.length;
+  const requestRecreateAll = () => {
+    if (!recreatableNodes.length || recreateAll.isPending) return;
+    const message = `Force recreate ${recreatableNodes.length} node${recreatableNodes.length === 1 ? '' : 's'}? All selected proxies will be temporarily unavailable and receive a new sandbox/IP.`;
+    if (!window.confirm(message)) return;
+    recreateAll.mutate(undefined, {
+      onSuccess: result => {
+        void qc.invalidateQueries({ queryKey: getListClientProxyNodesQueryKey() });
+        void qc.invalidateQueries({ queryKey: getGetClientOverviewQueryKey() });
+        window.alert(`Recreation queued for ${result.nodeIds.length} node${result.nodeIds.length === 1 ? '' : 's'}.`);
+      },
+      onError: error => window.alert(error.message),
+    });
+  };
 
   return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]">
     <ClientHeader active="proxy" />
@@ -860,7 +880,7 @@ function ClientPortalPage() {
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Active nodes" value={String(liveNodeCount)} detail="Synced by live status stream" icon={Network} tone="teal" /><Metric label="Requests today" value={(overview.data?.requestsToday || 0).toLocaleString()} detail="Proxy traffic" icon={Activity} tone="orange" /><Metric label="Success rate" value={`${overview.data?.successRate ?? 100}%`} detail="Last 24 hours" icon={Signal} tone="teal" /><Metric label="Proxy orders" value={String(orders.data?.length || 0)} detail="Account history" icon={Gauge} tone="orange" /></section>
 
-      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title="My proxy nodes" body="Every order can contain multiple nodes, all using the same account username and password." />
+      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title="My proxy nodes" body="Every order can contain multiple nodes, all using the same account username and password." action={<Button variant="danger" disabled={!recreatableNodes.length || recreateAll.isPending} onClick={requestRecreateAll} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? 'Recreating…' : `Force recreate all (${recreatableNodes.length})`}</Button>} />
         <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
       </section>
 

@@ -23,6 +23,11 @@ export class ProxyController {
     return this.proxy.restartForUser(user.profileId, id);
   }
 
+  @Post('nodes/recreate-all')
+  recreateAllNodes(@CurrentUser() user: AuthUser) {
+    return this.proxy.recreateAllForUser(user.profileId);
+  }
+
   @Sse('nodes/events')
   nodeEvents(
     @CurrentUser() user: AuthUser,

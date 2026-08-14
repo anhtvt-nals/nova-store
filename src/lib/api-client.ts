@@ -438,6 +438,9 @@ export function useCreateOrder(options?: MutationConfig<Order, { data: { product
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request(`/client/proxy/nodes/${id}/restart`, getAccessToken, { method: 'POST' }), ...options });
 }
+export function useRecreateAllProxyNodes(options?: MutationConfig<{ nodeIds: number[]; status: 'rotating' }, void>) {
+  return useMutation({ mutationFn: () => request<{ nodeIds: number[]; status: 'rotating' }>('/client/proxy/nodes/recreate-all', getAccessToken, { method: 'POST' }), ...options });
+}
 export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string; password?: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<User>('/admin/users', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
