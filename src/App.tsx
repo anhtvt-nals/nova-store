@@ -620,11 +620,15 @@ function AdminProviderApiKeysPage() {
 }
 
 function ProxyPriceRow({ setting }: { setting: { id: number; name: string; countryCode: string | null; basePrice: number; currency: string; isActive: boolean } }) {
-  const [price, setPrice] = useState(setting.basePrice);
+  // Keep the edit buffer as text so typing `0.` or trailing fractional zeros
+  // is not immediately normalized by React before the user finishes.
+  const [price, setPrice] = useState(String(setting.basePrice));
   const [currency, setCurrency] = useState(setting.currency);
   const update = useUpdateProxyPrice();
   const qc = useQueryClient();
-  return <div className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 sm:grid-cols-[1fr_130px_90px_auto] sm:items-center"><div><p className="font-bold">{setting.name}</p><p className="text-xs text-slate-500">{setting.countryCode || 'Global'} · {setting.isActive ? 'Active' : 'Inactive'}</p></div><input className="rounded-xl border border-[#dbe7e9] px-3 py-2 text-sm" type="number" min="0" step="0.0001" value={price} onChange={event => setPrice(Number(event.target.value))} /><input className="rounded-xl border border-[#dbe7e9] px-3 py-2 text-sm" maxLength={3} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /><Button className="min-h-9 px-3 text-xs" disabled={update.isPending} onClick={() => update.mutate({ id: setting.id, data: { basePrice: price, currency } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getProxySettingsQueryKey() }), onError: error => window.alert(error.message) })}>Save</Button></div>;
+  const parsedPrice = Number(price);
+  const validPrice = /^\d+(?:\.\d{1,4})?$/.test(price) && Number.isFinite(parsedPrice) && parsedPrice >= 0;
+  return <div className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 sm:grid-cols-[1fr_130px_90px_auto] sm:items-center"><div><p className="font-bold">{setting.name}</p><p className="text-xs text-slate-500">{setting.countryCode || 'Global'} · {setting.isActive ? 'Active' : 'Inactive'}</p></div><input className="rounded-xl border border-[#dbe7e9] px-3 py-2 text-sm" inputMode="decimal" pattern="^\d*(\.\d{0,4})?$" placeholder="0.0000" value={price} onChange={event => { const next = event.target.value; if (/^\d*(?:\.\d{0,4})?$/.test(next)) setPrice(next); }} /><input className="rounded-xl border border-[#dbe7e9] px-3 py-2 text-sm" maxLength={3} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /><Button className="min-h-9 px-3 text-xs" disabled={update.isPending || !validPrice} onClick={() => update.mutate({ id: setting.id, data: { basePrice: parsedPrice, currency } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getProxySettingsQueryKey() }), onError: error => window.alert(error.message) })}>Save</Button></div>;
 }
 
 function AdminProxySettingsPage() {
