@@ -1,0 +1,32 @@
+import 'reflect-metadata';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import type { NextFunction, Request, Response } from 'express';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api');
+  app.use((_request: Request, response: Response, next: NextFunction) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    response.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    response.setHeader('Cache-Control', 'no-store');
+    if (process.env.NODE_ENV === 'production') response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+  });
+  const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map(value => value.trim()).filter(Boolean);
+  if (process.env.NODE_ENV === 'production' && (corsOrigins.includes('*') || corsOrigins.some(origin => origin.includes('localhost')))) {
+    throw new Error('CORS_ORIGINS must contain explicit production origins');
+  }
+  app.enableCors({ origin: corsOrigins, credentials: false });
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.enableShutdownHooks();
+  const port = Number(process.env.API_PORT || 3001);
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`API listening on http://localhost:${port}/api`, 'Bootstrap');
+}
+
+void bootstrap();

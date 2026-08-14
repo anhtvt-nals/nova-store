@@ -1,0 +1,54 @@
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import type { Request } from 'express';
+import { DatabaseService } from '../database/database.service';
+import { IS_PUBLIC } from './public.decorator';
+import type { AuthUser } from './auth.types';
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(private reflector: Reflector, private db: DatabaseService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [context.getHandler(), context.getClass()])) return true;
+    const request = context.switchToHttp().getRequest<Request & { user: AuthUser }>();
+    const token = request.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
+    if (!token) throw new UnauthorizedException('Missing bearer token');
+    try {
+      const { data, error } = await this.db.client.auth.getUser(token);
+      if (error || !data.user?.email) throw error || new Error('Supabase user has no email');
+      if (!data.user.email_confirmed_at) throw new Error('Email address is not confirmed');
+      const profile = await this.resolveProfile(data.user.id, data.user.email, data.user.user_metadata);
+      request.user = { ...profile, aal: this.readAal(token) };
+      return true;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired session');
+    }
+  }
+
+  private async resolveProfile(authUserId: string, rawEmail: string, metadata: Record<string, unknown>): Promise<Omit<AuthUser, 'aal'>> {
+    const email = rawEmail.toLowerCase();
+    const name = String(metadata.name || email.split('@')[0]);
+    const existingResult = await this.db.client.from('profiles').select('id,role,status,email,name').eq('auth_user_id', authUserId).maybeSingle();
+    if (existingResult.error) throw existingResult.error;
+    let profile = existingResult.data;
+    if (!profile) {
+      const result = await this.db.client.from('profiles')
+        .insert({ auth_user_id: authUserId, email, name, role: 'client' })
+        .select('id,role,status,email,name').single();
+      if (result.error) throw result.error;
+      profile = result.data;
+    }
+    if (profile.status !== 'active') throw new UnauthorizedException('Account is suspended');
+    return { authUserId, profileId: profile.id, role: profile.role, email: profile.email, name: profile.name };
+  }
+
+  private readAal(token: string): 'aal1' | 'aal2' {
+    try {
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as { aal?: string };
+      return payload.aal === 'aal2' ? 'aal2' : 'aal1';
+    } catch {
+      return 'aal1';
+    }
+  }
+}
