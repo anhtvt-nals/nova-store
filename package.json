@@ -12,7 +12,9 @@
     "build:api": "nest build --config server/nest-cli.json",
     "start": "node dist/server/main.js",
     "serve": "vite preview --host 0.0.0.0",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
+    "clean:test-orders": "node scripts/clean-test-orders.mjs",
+    "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

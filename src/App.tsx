@@ -209,8 +209,36 @@ function CompactNodeCard({ order, connection, node }: { order: Order; connection
 }
 
 function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode }) {
-  const connection = useGetOrderConnection(order.id, node.id, { query: { queryKey: getGetOrderConnectionQueryKey(order.id, node.id) } });
+  const canLoadConnection = order.status === 'active'
+    && (!order.expiresAt || new Date(order.expiresAt) > new Date())
+    && ['online', 'rotating', 'degraded'].includes(node.status);
+  const connection = useGetOrderConnection(order.id, node.id, {
+    query: { enabled: canLoadConnection, queryKey: getGetOrderConnectionQueryKey(order.id, node.id) },
+  });
+  if (!canLoadConnection) return <ProxyNodeStatusCard node={node} />;
   return <State loading={connection.isLoading} error={connection.isError} onRetry={() => connection.refetch()}>{connection.data && <CompactNodeCard order={order} connection={connection.data} node={node} />}</State>;
+}
+
+function ProxyNodeStatusCard({ node }: { node: RuntimeProxyNode }) {
+  const pending = node.status === 'queued' || node.status === 'provisioning' || node.status === 'rotating';
+  const healthy = node.status === 'online' || node.status === 'degraded';
+  const statusColor = healthy ? '#43cf65' : pending ? '#f6a94a' : '#ff5156';
+  const endpoint = node.host && node.port ? `${node.host}:${node.port}` : 'Waiting for endpoint allocation';
+  return <article className="relative overflow-hidden rounded-xl border border-[#34404b] bg-[#171d23] px-4 py-4 text-slate-200 shadow-[0_8px_22px_rgba(20,32,55,.12)]">
+    <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: statusColor }} />
+    <div className="flex items-center gap-2 pl-1">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
+      <p className="min-w-0 flex-1 truncate text-xs font-bold">Node {node.id}</p>
+      <span className="text-[9px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{node.status.toUpperCase()}</span>
+    </div>
+    <p className="mono mt-3 break-all pl-1 text-[10px] text-[#43d6dc]">{endpoint}</p>
+    <div className="mt-3 grid gap-1.5 border-t border-white/10 pl-1 pt-3 text-[10px] text-slate-500 sm:grid-cols-2">
+      <p>Provider <strong className="ml-1 text-slate-300">{node.providerName || 'Assigning…'}</strong></p>
+      <p>Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
+    </div>
+    {node.errorMessage && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-[10px] leading-4 text-red-300">{node.errorMessage}</p>}
+    {!healthy && !node.errorMessage && <p className="mt-3 text-[10px] leading-4 text-slate-500">Connection credentials will appear when this node and its order are active.</p>}
+  </article>;
 }
 
 function OrdersTable({ orders }: { orders: Order[] }) {
@@ -778,8 +806,8 @@ function ClientPortalPage() {
   const runtimeNodes = useListClientProxyNodes();
   const qc = useQueryClient();
   const activeOrders = (orders.data || []).filter(order => order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date()));
-  const activeOrderById = new Map(activeOrders.map(order => [order.id, order]));
-  const activeNodes = (runtimeNodes.data || []).filter(node => activeOrderById.has(node.orderId) && node.status !== 'terminated');
+  const orderById = new Map((orders.data || []).map(order => [String(order.id), order]));
+  const visibleNodes = (runtimeNodes.data || []).filter(node => orderById.has(String(node.orderId)) && node.status !== 'terminated');
   const services = (products.data || []).filter(product => product.serviceType === 'proxy');
 
   useEffect(() => subscribeToProxyNodeEvents(event => {
@@ -802,7 +830,7 @@ function ClientPortalPage() {
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Active nodes" value={String(liveNodeCount)} detail="Synced by live status stream" icon={Network} tone="teal" /><Metric label="Requests today" value={(overview.data?.requestsToday || 0).toLocaleString()} detail="Proxy traffic" icon={Activity} tone="orange" /><Metric label="Success rate" value={`${overview.data?.successRate ?? 100}%`} detail="Last 24 hours" icon={Signal} tone="teal" /><Metric label="Proxy orders" value={String(orders.data?.length || 0)} detail="Account history" icon={Gauge} tone="orange" /></section>
 
       <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title="My proxy nodes" body="Every order can contain multiple nodes, all using the same account username and password." />
-        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!activeNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{activeNodes.map(node => { const order = activeOrderById.get(node.orderId)!; return <div key={node.id} className="min-w-0"><div className="mb-2 flex items-center justify-between px-1"><p className="truncate text-xs font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[9px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
+        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-2 flex items-center justify-between px-1"><p className="truncate text-xs font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[9px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
       </section>
 
       <section id="catalog" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="proxy catalog" title="SOCKS5 by country" body="Compare countries and create an order directly from the table." /><State loading={products.isLoading} error={products.isError} onRetry={() => products.refetch()} empty={!services.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">Country</th><th className="px-4 py-3">Proxy service</th><th className="px-4 py-3">Price / node</th><th className="px-3 py-3">Nodes</th><th className="px-3 py-3">Days</th><th className="px-3 py-3">Payment</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Action</th></tr></thead><tbody>{services.map(service => <ProxyOrderForm key={service.id} product={service} />)}</tbody></table></div></State></section>
