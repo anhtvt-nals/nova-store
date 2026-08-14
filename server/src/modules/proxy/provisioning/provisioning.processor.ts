@@ -84,8 +84,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     if (this.schedulingRotations || this.stopped) return;
     this.schedulingRotations = true;
     try {
-      const configuredBatchSize = Number(this.config.get('PROXY_ROTATION_BATCH_SIZE') || 100);
-      const batchSize = Math.max(1, Math.min(500, Number.isFinite(configuredBatchSize) ? configuredBatchSize : 100));
+      // A replacement needs temporary provider headroom. Queue one by default
+      // so a due batch never makes every healthy node look unavailable.
+      const configuredBatchSize = Number(this.config.get('PROXY_ROTATION_BATCH_SIZE') || 1);
+      const batchSize = Math.max(1, Math.min(500, Number.isFinite(configuredBatchSize) ? configuredBatchSize : 1));
       const recovered = await this.repository.recoverStalledRotations(batchSize);
       if (recovered.length > 0) {
         this.logger.warn(`Recovered ${recovered.length} stalled proxy rotation${recovered.length === 1 ? '' : 's'}`);
@@ -152,14 +154,17 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const accountCredential = await this.credentials.getOrCreate(context.profileId);
 
       if (replacing && context.currentInstanceId) {
+        // Do not show ROTATING while this replacement waits for capacity. The
+        // old endpoint remains usable until we actually begin the cutover.
+        await this.proxy.reportStatus(context.nodeId, { status: 'rotating' });
         if (!context.providerId || !context.providerApiKeyId) throw new Error('Existing proxy instance has no provider assignment');
         const oldProviderConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
         const oldProviderApiKey = this.secrets.decryptProviderKey(oldProviderConfig.key);
         const oldProvider = this.providers.get(oldProviderConfig.driver);
         await oldProvider.terminateInstance(context.currentInstanceId, oldProviderApiKey);
         await this.repository.markInstanceStopped(context.providerId, context.currentInstanceId, 'stopped');
-        await this.health.waitUntilUnavailable(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
         await this.repository.clearReplacedInstance(context.nodeId, context.currentInstanceId);
+        await this.health.waitUntilUnavailable(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
       }
       if (replacing) await this.repository.releaseCustomerCapacity(context.nodeId);
 

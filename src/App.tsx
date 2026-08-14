@@ -242,10 +242,11 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
       <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
       <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
-      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 text-[8px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={9} />{restarting ? 'Restarting' : 'Restart'}</button>}
+      <button onClick={() => void copy(connectionString)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-proxy-${node?.id || order.id}`} aria-label="Copy SOCKS5 proxy" title="Copy SOCKS5 proxy">{copied ? <Check size={11} className="text-[#43cf65]" /> : <Copy size={10} />}</button>
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`} aria-label="Restart node" title="Restart node"><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} /></button>}
     </div>
     <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">
-      <div className="flex items-center justify-between gap-2"><p className="text-[8px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy</p><button onClick={() => void copy(connectionString)} className="inline-flex h-6 shrink-0 items-center gap-1 rounded bg-[#ff5156] px-1.5 text-[8px] font-bold text-white hover:bg-[#ff696d]" data-testid={`button-copy-proxy-${node?.id || order.id}`}><Copy size={9} />{copied ? 'Copied' : 'Copy'}</button></div>
+      <div className="flex items-center justify-between gap-2"><p className="text-[8px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy</p></div>
       <code className="mono mt-1.5 block break-all text-[9px] leading-3.5 text-[#43d6dc]">{connectionString}</code>
     </div>
     <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-white/10 pl-0.5 pt-2 text-[9px] leading-3.5">
@@ -293,7 +294,7 @@ function ProxyNodeStatusCard({ node, onRestart, restarting }: { node: RuntimePro
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
       <p className="min-w-0 flex-1 truncate text-[10px] font-bold">Node {node.id}</p>
       <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{node.status.toUpperCase()}</span>
-      {onRestart && <button onClick={onRestart} disabled={restarting} className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 text-[8px] font-bold text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node.id}`}><RefreshCw className={restarting ? 'animate-spin' : ''} size={9} />{restarting ? 'Restarting' : 'Restart'}</button>}
+      {onRestart && <button onClick={onRestart} disabled={restarting} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node.id}`} aria-label="Restart node" title="Restart node"><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} /></button>}
     </div>
     <p className="mono mt-2 break-all pl-0.5 text-[9px] text-[#43d6dc]">{endpoint}</p>
     <p className="mt-2 border-t border-white/10 pl-0.5 pt-2 text-[9px] text-slate-500">Last update <strong className="ml-1 text-slate-300">{date(node.lastStatusChangeAt)} {time(node.lastStatusChangeAt)}</strong></p>
