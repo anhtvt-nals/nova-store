@@ -899,6 +899,9 @@ function ClientPortalPage() {
   const recreateAll = useRecreateAllProxyNodes();
   const activeOrders = (orders.data || []).filter(order => order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date()));
   const activeNodeTotal = activeOrders.reduce((total, order) => total + order.nodeCount, 0);
+  const failedOrderIds = new Set((orders.data || []).filter(order => order.status === 'provisioning_failed').map(order => String(order.id)));
+  const failedNodeTotal = (runtimeNodes.data || []).filter(node => failedOrderIds.has(String(node.orderId)) && node.status !== 'online' && node.status !== 'terminated' && node.status !== 'terminating').length;
+  const recreateNodeTotal = activeNodeTotal + failedNodeTotal;
   const orderById = new Map((orders.data || []).map(order => [String(order.id), order]));
   const visibleNodes = (runtimeNodes.data || []).filter(node => orderById.has(String(node.orderId)) && node.status !== 'terminated');
   const services = (products.data || []).filter(product => product.serviceType === 'proxy');
@@ -919,8 +922,8 @@ function ClientPortalPage() {
 
   const liveNodeCount = runtimeNodes.data?.filter(node => ['online', 'rotating', 'degraded'].includes(node.status)).length ?? activeOrders.length;
   const requestRecreateAll = () => {
-    if (!activeNodeTotal || recreateAll.isPending) return;
-    const message = `Force recreate all ${activeNodeTotal} active node${activeNodeTotal === 1 ? '' : 's'}? Proxies will be temporarily unavailable and receive a new sandbox/IP. Nodes already being provisioned or rotated will continue their current job.`;
+    if (!recreateNodeTotal || recreateAll.isPending) return;
+    const message = `Force recreate ${recreateNodeTotal} eligible node${recreateNodeTotal === 1 ? '' : 's'}? Active proxies will be temporarily unavailable and receive a new sandbox/IP. Failed provisioning nodes will be queued again.`;
     if (!window.confirm(message)) return;
     recreateAll.mutate(undefined, {
       onSuccess: result => {
@@ -940,7 +943,7 @@ function ClientPortalPage() {
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric label={t('activeNodes')} value={String(liveNodeCount)} detail={t('liveStatus')} icon={Network} tone="teal" /><Metric label={t('requestsToday')} value={(overview.data?.requestsToday || 0).toLocaleString()} detail={t('proxyTraffic')} icon={Activity} tone="orange" /><Metric label={t('successRate')} value={`${overview.data?.successRate ?? 100}%`} detail={t('last24Hours')} icon={Signal} tone="teal" /><Metric label={t('proxyOrders')} value={String(orders.data?.length || 0)} detail={t('accountHistory')} icon={Gauge} tone="orange" /></section>
 
-      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title={t('myNodes')} body={t('myNodesBody')} action={<Button variant="danger" disabled={!activeNodeTotal || recreateAll.isPending} onClick={requestRecreateAll} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${activeNodeTotal})`}</Button>} />
+      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title={t('myNodes')} body={t('myNodesBody')} action={<Button variant="danger" disabled={!recreateNodeTotal || recreateAll.isPending} onClick={requestRecreateAll} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${recreateNodeTotal})`}</Button>} />
         <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
       </section>
 

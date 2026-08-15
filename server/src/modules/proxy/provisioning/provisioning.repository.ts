@@ -62,7 +62,10 @@ export class ProvisioningRepository {
     const row = this.db.unwrap(result, 'Unable to load proxy provisioning context') as any;
     if (!row) throw new Error('Proxy node not found');
     const order = Array.isArray(row.orders) ? row.orders[0] : row.orders;
-    const validProvision = action === 'provision' && order?.status === 'provisioning';
+    // A customer can explicitly retry a failed initial provisioning job. The
+    // order remains provisioning_failed until every provision job completes,
+    // so already-healthy sibling nodes are never reprovisioned.
+    const validProvision = action === 'provision' && ['provisioning', 'provisioning_failed'].includes(order?.status);
     const validReplacement = action === 'replace' && order?.status === 'active'
       && order.expires_at && new Date(order.expires_at) > new Date();
     if (!validProvision && !validReplacement) throw new Error(action === 'replace' ? 'Order is not active' : 'Order is not awaiting provisioning');
