@@ -44,7 +44,14 @@ export class AdminService {
     ]);
     const rows = this.db.unwrap(profiles, 'Unable to load users');
     const activeOrders = this.db.unwrap(orders, 'Unable to load user plans');
-    return rows.map(profile => ({ ...profile, planName: activeOrders.find(order => order.profile_id === profile.id)?.plan_name_snapshot || 'No active plan' }));
+    return rows.map(profile => ({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      status: profile.status,
+      isTrial: profile.is_trial,
+      planName: activeOrders.find(order => order.profile_id === profile.id)?.plan_name_snapshot || 'No active plan',
+    }));
   }
 
   async createUser(dto: CreateUserDto) {
@@ -62,14 +69,19 @@ export class AdminService {
     const result = await this.db.client.from('profiles').select('id,name,email,status,is_trial').eq('auth_user_id', created.data.user.id).maybeSingle();
     const profile = this.db.unwrap(result, 'Account was created but its profile could not be loaded');
     if (!profile) throw new NotFoundException('Account profile was not created');
-    return { ...profile, planName: 'No active plan' };
+    return { id: profile.id, name: profile.name, email: profile.email, status: profile.status, isTrial: profile.is_trial, planName: 'No active plan' };
   }
 
   async updateUser(id: number, dto: UpdateUserDto) {
-    const result = await this.db.client.from('profiles').update(dto).eq('id', id).select('id,name,email,status,is_trial').maybeSingle();
+    const update: Record<string, unknown> = {};
+    if (dto.name !== undefined) update.name = dto.name;
+    if (dto.status !== undefined) update.status = dto.status;
+    if (dto.isTrial !== undefined) update.is_trial = dto.isTrial;
+    if (!Object.keys(update).length) throw new BadRequestException('No user fields to update');
+    const result = await this.db.client.from('profiles').update(update).eq('id', id).select('id,name,email,status,is_trial').maybeSingle();
     const profile = this.db.unwrap(result, 'Unable to update user');
     if (!profile) throw new NotFoundException('User not found');
-    return { ...profile, planName: 'No active plan' };
+    return { id: profile.id, name: profile.name, email: profile.email, status: profile.status, isTrial: profile.is_trial, planName: 'No active plan' };
   }
 
   async deleteUser(id: number, actor: AuthUser) {
