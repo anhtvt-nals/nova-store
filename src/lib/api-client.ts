@@ -256,6 +256,7 @@ export interface CreditWallet { id: number; name: string; email: string; isTrial
 export interface CatalogSettings {
   brandName: string;
   usdToIdrRate: number;
+  creditsPerUsd: number;
 }
 
 type QueryConfig<T> = { query?: Omit<UseQueryOptions<T, Error>, 'queryKey' | 'queryFn'> & { queryKey?: readonly unknown[] } };

@@ -28,13 +28,15 @@ export class CatalogService {
   }
 
   async settings() {
-    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'usd_to_idr_rate']);
+    const result = await this.db.client.from('app_settings').select('key,value').in('key', ['site_name', 'usd_to_idr_rate', 'credits_per_usd']);
     const rows = this.db.unwrap(result, 'Unable to load catalog settings');
     const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
     const usdToIdrRate = Number(values.usd_to_idr_rate);
+    const creditsPerUsd = Number(values.credits_per_usd);
     return {
       brandName: String(values.site_name || 'Nodenesia'),
       usdToIdrRate: Number.isFinite(usdToIdrRate) && usdToIdrRate > 0 ? usdToIdrRate : 16000,
+      creditsPerUsd: Number.isFinite(creditsPerUsd) && creditsPerUsd > 0 ? creditsPerUsd : 100,
     };
   }
 
