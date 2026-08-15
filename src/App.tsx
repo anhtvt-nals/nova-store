@@ -76,9 +76,7 @@ function LocaleSwitcher({ inverse = false }: { inverse?: boolean }) {
 
 function Logo({ inverse = false }: { inverse?: boolean }) {
   return <Link href="/" className="inline-flex items-center gap-2.5" data-testid="link-logo">
-    <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f46c43] text-white shadow-sm">
-      <Network size={19} strokeWidth={2.4} />
-    </span>
+    <img src="/logo.png" alt="Nodenesia" className="h-9 w-auto object-contain" />
     <span className={cx('text-[17px] font-extrabold tracking-[-.04em]', inverse ? 'text-white' : 'text-[#142037]')}>Nodenesia</span>
   </Link>;
 }

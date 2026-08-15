@@ -50,15 +50,27 @@ async function countRows(table, configure = query => query) {
   return count || 0;
 }
 
+// The GitHub Actions control-plane table is present only after its migration.
+// Keep this cleanup usable for older development databases as well.
+async function countOptionalRows(table, configure = query => query) {
+  const query = supabase.from(table).select('*', { count: 'exact', head: true });
+  const { count, error } = await configure(query);
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return null;
+  if (error) fail(`Unable to count ${table}: ${error.message}`);
+  return count || 0;
+}
+
 async function loadSummary() {
   const orderStatuses = ['pending', 'provisioning', 'active', 'provisioning_failed', 'expired', 'rejected', 'cancelled'];
-  const [orders, nodes, jobs, instances, leases, orderLogs, activeJobs, activeInstances, ...statusCounts] = await Promise.all([
+  const [orders, nodes, jobs, instances, leases, orderLogs, githubTasks, activeGithubTasks, activeJobs, activeInstances, ...statusCounts] = await Promise.all([
     countRows('orders'),
     countRows('proxy_nodes'),
     countRows('proxy_provisioning_jobs'),
     countRows('proxy_node_instances'),
     countRows('provider_capacity_leases'),
     countRows('activity_logs', query => query.eq('entity_type', 'order')),
+    countOptionalRows('github_runner_tasks'),
+    countOptionalRows('github_runner_tasks', query => query.in('state', ['pending', 'claimed'])),
     countRows('proxy_provisioning_jobs', query => query.in('status', ['queued', 'running', 'retry'])),
     countRows('proxy_node_instances', query => query.in('status', ['provisioning', 'running', 'stopping'])),
     ...orderStatuses.map(status => countRows('orders', query => query.eq('status', status))),
@@ -71,6 +83,8 @@ async function loadSummary() {
     instances,
     leases,
     orderLogs,
+    githubTasks,
+    activeGithubTasks,
     activeJobs,
     activeInstances,
     statuses: Object.fromEntries(orderStatuses.map((status, index) => [status, statusCounts[index]])),
@@ -86,8 +100,10 @@ function printSummary(summary) {
     node_instances: summary.instances,
     capacity_leases: summary.leases,
     order_activity_logs: summary.orderLogs,
+    github_runner_tasks: summary.githubTasks ?? 'migration not applied',
     active_provisioning_jobs: summary.activeJobs,
     active_provider_instances: summary.activeInstances,
+    active_github_runner_tasks: summary.activeGithubTasks ?? 'migration not applied',
   });
   console.log('[clean-orders] Order statuses:');
   console.table(summary.statuses);
@@ -107,9 +123,9 @@ if (suppliedConfirmation !== confirmation) {
   fail(`Confirmation mismatch. Expected --confirm='${confirmation}'`);
 }
 
-if ((before.activeJobs > 0 || before.activeInstances > 0) && !allowActiveRuntime) {
+if ((before.activeJobs > 0 || before.activeInstances > 0 || (before.activeGithubTasks || 0) > 0) && !allowActiveRuntime) {
   fail(
-    `Found ${before.activeJobs} active provisioning job(s) and ${before.activeInstances} active provider instance(s). `
+    `Found ${before.activeJobs} active provisioning job(s), ${before.activeInstances} active provider instance(s), and ${before.activeGithubTasks || 0} active GitHub runner task(s). `
     + 'Stop the API and terminate those provider instances first. If they are intentionally disposable, rerun with --allow-active-runtime.',
   );
 }
@@ -127,7 +143,7 @@ const deletedLogs = await supabase.from('activity_logs').delete().eq('entity_typ
 if (deletedLogs.error) fail(`Orders were deleted, but order activity log cleanup failed: ${deletedLogs.error.message}`);
 
 const after = await loadSummary();
-if (after.orders || after.nodes || after.jobs || after.instances || after.leases || after.orderLogs) {
+if (after.orders || after.nodes || after.jobs || after.instances || after.leases || after.orderLogs || (after.githubTasks || 0) > 0) {
   printSummary(after);
   fail('Cleanup finished with related rows still present. Review the database constraints before retrying.');
 }

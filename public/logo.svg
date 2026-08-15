@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 44" fill="none">
-  <rect width="36" height="36" x="2" y="4" rx="10" fill="#F46C43"/>
-  <path d="M11 15.5h14M11 22h9M11 28.5h14" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="28" cy="22" r="4" fill="#69D5D0"/>
-  <text x="48" y="29" fill="#142037" font-family="Arial,sans-serif" font-size="22" font-weight="700">proxy node</text>
-</svg>
