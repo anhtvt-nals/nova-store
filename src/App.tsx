@@ -75,8 +75,8 @@ function LocaleSwitcher({ inverse = false }: { inverse?: boolean }) {
 }
 
 function Logo({ inverse = false }: { inverse?: boolean }) {
-  return <Link href="/" className="inline-flex items-center" data-testid="link-logo">
-    <img src="/logo.png" alt="Nodenesia" className="h-9 w-auto object-contain" />
+  return <Link href="/" aria-label="Nodenesia home" className="inline-flex items-center" data-testid="link-logo">
+    <img src="/logo.png" alt="" className="h-9 w-auto object-contain" />
   </Link>;
 }
 
