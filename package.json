@@ -17,7 +17,8 @@
     "clean:test-runtime": "node scripts/clean-test-orders.mjs",
     "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs",
     "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
-    "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs"
+    "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs",
+    "deploy:redeploy": "bash scripts/redeploy-production.sh"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

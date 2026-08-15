@@ -92,7 +92,12 @@ ReadWritePaths=${APP_DIR}
 [Install]
 WantedBy=multi-user.target
 EOF
-  chown -R "${SERVICE_USER}:${SERVICE_USER}" "$APP_DIR/dist"
+  chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$APP_DIR/dist"
+  # Nginx workers run as www-data and only need traversal on the project path
+  # plus read access to the compiled public assets. Do not expose .env/source.
+  chmod o+x "$(dirname "$APP_DIR")" "$APP_DIR" "$APP_DIR/dist" "$APP_DIR/dist/public"
+  find "$APP_DIR/dist/public" -type d -exec chmod o+rx {} +
+  find "$APP_DIR/dist/public" -type f -exec chmod o+r {} +
   systemctl daemon-reload
   systemctl enable --now "${SERVICE_NAME}.service"
   systemctl is-active --quiet "${SERVICE_NAME}.service" || {
