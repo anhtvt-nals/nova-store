@@ -141,6 +141,7 @@ export interface CurrentUser {
   email: string;
   name: string;
   role: 'admin' | 'client';
+  isTrial: boolean;
   aal: 'aal1' | 'aal2';
 }
 export interface OrderQuote {
@@ -457,7 +458,7 @@ export function useCreditWallets(config?: QueryConfig<CreditWallet[]>) {
   return query(getCreditWalletsQueryKey(), '/admin/credits', getAccessToken, config);
 }
 
-export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'bank_transfer' | 'crypto' | 'credit' } }>) {
+export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'credit' } }>) {
   return useMutation({ mutationFn: ({ data }) => request<Order>('/orders', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {

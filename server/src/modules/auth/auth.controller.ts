@@ -11,6 +11,7 @@ export class AuthController {
       email: user.email,
       name: user.name,
       role: user.role,
+      isTrial: user.isTrial,
       aal: user.aal,
     };
   }

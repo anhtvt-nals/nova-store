@@ -4,5 +4,6 @@ export interface AuthUser {
   role: 'admin' | 'client';
   email: string;
   name: string;
+  isTrial: boolean;
   aal: 'aal1' | 'aal2';
 }

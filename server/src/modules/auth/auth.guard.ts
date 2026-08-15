@@ -29,18 +29,18 @@ export class AuthGuard implements CanActivate {
   private async resolveProfile(authUserId: string, rawEmail: string, metadata: Record<string, unknown>): Promise<Omit<AuthUser, 'aal'>> {
     const email = rawEmail.toLowerCase();
     const name = String(metadata.name || email.split('@')[0]);
-    const existingResult = await this.db.client.from('profiles').select('id,role,status,email,name').eq('auth_user_id', authUserId).maybeSingle();
+    const existingResult = await this.db.client.from('profiles').select('id,role,status,email,name,is_trial').eq('auth_user_id', authUserId).maybeSingle();
     if (existingResult.error) throw existingResult.error;
     let profile = existingResult.data;
     if (!profile) {
       const result = await this.db.client.from('profiles')
         .insert({ auth_user_id: authUserId, email, name, role: 'client' })
-        .select('id,role,status,email,name').single();
+        .select('id,role,status,email,name,is_trial').single();
       if (result.error) throw result.error;
       profile = result.data;
     }
     if (profile.status !== 'active') throw new UnauthorizedException('Account is suspended');
-    return { authUserId, profileId: profile.id, role: profile.role, email: profile.email, name: profile.name };
+    return { authUserId, profileId: profile.id, role: profile.role, email: profile.email, name: profile.name, isTrial: profile.is_trial };
   }
 
   private readAal(token: string): 'aal1' | 'aal2' {
