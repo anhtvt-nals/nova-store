@@ -55,6 +55,17 @@ export class ProvisioningRepository {
     return rows.map(row => ({ jobId: Number(row.scheduled_job_id), nodeId: Number(row.scheduled_node_id) }));
   }
 
+  async purgeRuntimeHistory(instanceRetentionDays: number, leaseRetentionDays: number, batchSize: number) {
+    const result = await this.db.client.rpc('purge_proxy_runtime_history', {
+      instance_retention_days: instanceRetentionDays,
+      lease_retention_days: leaseRetentionDays,
+      batch_size: batchSize,
+    });
+    const rows = this.db.unwrap(result, 'Unable to purge proxy runtime history') as Array<{ deleted_instances: number; deleted_leases: number }>;
+    const row = rows[0];
+    return { instances: Number(row?.deleted_instances || 0), leases: Number(row?.deleted_leases || 0) };
+  }
+
   async context(nodeId: number, action: ProvisioningJob['action']) {
     const result = await this.db.client.from('proxy_nodes')
       .select('id,order_id,profile_id,provider_id,provider_api_key_id,current_instance_id,public_host,tunnel_port,metadata,orders(id,rental_days,status,expires_at)')

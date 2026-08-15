@@ -16,9 +16,11 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
   private timer?: NodeJS.Timeout;
   private rotationTimer?: NodeJS.Timeout;
   private expirationTimer?: NodeJS.Timeout;
+  private retentionTimer?: NodeJS.Timeout;
   private ticking = false;
   private schedulingRotations = false;
   private schedulingExpirations = false;
+  private purgingRuntimeHistory = false;
   private stopped = false;
   private active = 0;
 
@@ -46,6 +48,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     if (this.timer) clearInterval(this.timer);
     if (this.rotationTimer) clearInterval(this.rotationTimer);
     if (this.expirationTimer) clearInterval(this.expirationTimer);
+    if (this.retentionTimer) clearInterval(this.retentionTimer);
   }
 
   private async start() {
@@ -55,10 +58,14 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     if (this.stopped) return;
     await this.scheduleDueRotations();
     if (this.stopped) return;
+    await this.purgeRuntimeHistory();
+    if (this.stopped) return;
     const expirationPollMs = Math.max(5000, Number(this.config.get('PROXY_EXPIRATION_POLL_MS') || 30000));
     const rotationPollMs = Math.max(5000, Number(this.config.get('PROXY_ROTATION_POLL_MS') || 30000));
     this.expirationTimer = setInterval(() => void this.scheduleExpiredOrders(), expirationPollMs);
     this.rotationTimer = setInterval(() => void this.scheduleDueRotations(), rotationPollMs);
+    const retentionPollMs = Math.max(60_000, Number(this.config.get('PROXY_RUNTIME_RETENTION_POLL_MS') || 6 * 60 * 60_000));
+    this.retentionTimer = setInterval(() => void this.purgeRuntimeHistory(), retentionPollMs);
     this.timer = setInterval(() => void this.tick(), Number(this.config.get('PROXY_PROVISIONING_POLL_MS') || 2000));
     void this.tick();
   }
@@ -100,6 +107,27 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       this.logger.error(`Unable to schedule due proxy rotations: ${error instanceof Error ? error.message : error}`);
     } finally {
       this.schedulingRotations = false;
+    }
+  }
+
+  private async purgeRuntimeHistory() {
+    if (this.purgingRuntimeHistory || this.stopped) return;
+    this.purgingRuntimeHistory = true;
+    try {
+      const readInteger = (key: string, fallback: number, min: number, max: number) => {
+        const value = Number(this.config.get(key) || fallback);
+        return Math.max(min, Math.min(max, Number.isFinite(value) ? Math.floor(value) : fallback));
+      };
+      const result = await this.repository.purgeRuntimeHistory(
+        readInteger('PROXY_INSTANCE_RETENTION_DAYS', 14, 1, 365),
+        readInteger('PROXY_LEASE_RETENTION_DAYS', 7, 1, 365),
+        readInteger('PROXY_RUNTIME_RETENTION_BATCH_SIZE', 500, 1, 5000),
+      );
+      if (result.instances || result.leases) this.logger.log(`Purged ${result.instances} historical proxy instance(s) and ${result.leases} released capacity lease(s)`);
+    } catch (error) {
+      this.logger.error(`Unable to purge proxy runtime history: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      this.purgingRuntimeHistory = false;
     }
   }
 
