@@ -13,6 +13,7 @@ export interface ProviderCapabilities {
 export interface ProvisionNodeInput {
   nodeId: number;
   orderId: number;
+  providerApiKeyId: number;
   providerApiKey: string;
   template?: string;
   timeoutMs: number;

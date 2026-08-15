@@ -258,12 +258,88 @@ export class AdminService {
   }
 
   async createProviderApiKey(providerId: number, dto: CreateProviderApiKeyDto) {
-    const provider = await this.db.client.from('proxy_providers').select('id').eq('id', providerId).maybeSingle();
+    const provider = await this.db.client.from('proxy_providers').select('id,code').eq('id', providerId).maybeSingle();
     if (!this.db.unwrap(provider, 'Unable to validate provider')) throw new NotFoundException('Provider not found');
-    const encrypted = this.encryptProviderSecret(dto.secret);
-    const result = await this.db.client.from('provider_api_keys').insert({ provider_id: providerId, label: dto.label, key_prefix: dto.secret.slice(0, 4), key_last4: dto.secret.slice(-4), ...encrypted }).select('id,provider_id,label,key_prefix,key_last4,status,created_at').single();
+    const storedSecret = dto.secret.trim();
+    const githubOwner = provider.data?.code === 'github' ? this.githubOwner(storedSecret) : null;
+    if (githubOwner) await this.ensureGithubSandboxRepository(githubOwner, storedSecret.slice(storedSecret.indexOf('|') + 1));
+    const encrypted = this.encryptProviderSecret(storedSecret);
+    const result = await this.db.client.from('provider_api_keys').insert({
+      provider_id: providerId,
+      label: dto.label,
+      key_prefix: githubOwner ? `${githubOwner}|` : storedSecret.slice(0, 4),
+      key_last4: storedSecret.slice(-4),
+      ...encrypted,
+    }).select('id,provider_id,label,key_prefix,key_last4,status,created_at').single();
     const row = this.db.unwrap(result, 'Unable to save provider API key');
     return { id: row.id, providerId: row.provider_id, label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at };
+  }
+
+  private githubOwner(secret: string) {
+    const separator = secret.indexOf('|');
+    if (separator < 1 || separator !== secret.lastIndexOf('|')) {
+      throw new BadRequestException('GitHub provider secret must use GITHUB_OWNER|GITHUB_API_KEY');
+    }
+    const owner = secret.slice(0, separator).trim();
+    const apiKey = secret.slice(separator + 1).trim();
+    if (!/^[A-Za-z0-9-]+$/.test(owner) || apiKey.length < 8) {
+      throw new BadRequestException('GitHub provider secret must use a valid owner and API key');
+    }
+    return owner;
+  }
+
+  private async ensureGithubSandboxRepository(owner: string, apiKey: string) {
+    const templateOwner = String(this.config.get('GITHUB_TEMPLATE_OWNER') || '').trim();
+    if (!/^[A-Za-z0-9-]+$/.test(templateOwner)) {
+      throw new BadRequestException('GITHUB_TEMPLATE_OWNER must be configured before adding a GitHub provider key');
+    }
+
+    const user = await this.githubRequest<{ login?: string }>('/user', apiKey, 'GET', [200]);
+    if (user.login?.toLowerCase() !== owner.toLowerCase()) {
+      throw new BadRequestException('The owner in the GitHub provider secret must match the API key owner');
+    }
+
+    const repository = 'nodenesia-gost-sandbox';
+    const existing = await this.githubRequest(`/repos/${owner}/${repository}`, apiKey, 'GET', [200, 404]);
+    if (existing.status !== 200) {
+      await this.githubRequest(
+        `/repos/${templateOwner}/nodenesia-gost-template/generate`,
+        apiKey,
+        'POST',
+        [201],
+        { owner, name: repository, description: 'Public short-lived GOST v3 test runner for Nodenesia', private: false, include_all_branches: false },
+      );
+    }
+    const controlPlaneUrl = String(this.config.get('GITHUB_CONTROL_PLANE_URL') || '').replace(/\/$/, '');
+    if (!/^https:\/\//.test(controlPlaneUrl)) throw new BadRequestException('GITHUB_CONTROL_PLANE_URL must be an HTTPS URL before adding a GitHub provider key');
+    const variablePath = `/repos/${owner}/${repository}/actions/variables/NODENESIA_CONTROL_PLANE_URL`;
+    const updated = await this.githubRequest(variablePath, apiKey, 'PATCH', [204, 404], { name: 'NODENESIA_CONTROL_PLANE_URL', value: controlPlaneUrl });
+    if (updated.status === 404) await this.githubRequest(`/repos/${owner}/${repository}/actions/variables`, apiKey, 'POST', [201], { name: 'NODENESIA_CONTROL_PLANE_URL', value: controlPlaneUrl });
+  }
+
+  private async githubRequest<T extends Record<string, unknown> = Record<string, unknown>>(
+    path: string,
+    apiKey: string,
+    method: 'GET' | 'POST' | 'PATCH',
+    expectedStatuses: number[],
+    body?: Record<string, unknown>,
+  ): Promise<T & { status: number }> {
+    const response = await fetch(`https://api.github.com${path}`, {
+      method,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${apiKey}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const payload = await response.json().catch(() => ({})) as T;
+    if (expectedStatuses.includes(response.status)) return { ...payload, status: response.status };
+    if (response.status === 401 || response.status === 403) throw new BadRequestException('GitHub API key is invalid or lacks repository access');
+    if (response.status === 404) throw new BadRequestException('Nodenesia GitHub template repository was not found or is not accessible to this API key');
+    if (response.status === 422) throw new BadRequestException('GitHub could not create the Nodenesia sandbox repository; verify the account and template access');
+    throw new BadRequestException(`GitHub repository setup failed (${response.status})`);
   }
 
   async revokeProviderApiKey(id: number) {

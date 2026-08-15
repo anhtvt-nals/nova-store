@@ -1,0 +1,66 @@
+name: GOST sandbox
+run-name: Nodenesia GOST ${{ inputs.task_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Opaque Nodenesia control-plane task ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run-gost:
+    name: Run temporary GOST tunnel
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Obtain one-time runner configuration
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          CONTROL_PLANE_URL: ${{ vars.NODENESIA_CONTROL_PLANE_URL }}
+          OIDC_AUDIENCE: nodenesia-gost-control-plane
+        run: |
+          set -euo pipefail
+          [[ "$TASK_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo 'Invalid task ID' >&2; exit 1; }
+          [[ "$CONTROL_PLANE_URL" =~ ^https:// ]] || { echo 'Control plane must use HTTPS' >&2; exit 1; }
+          response="$(curl --fail --silent --show-error -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}")"
+          oidc_token="$(jq -er '.value' <<<"$response")"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer ${oidc_token}" -H 'Content-Type: application/json' \
+            --data "{\"runId\":${GITHUB_RUN_ID}}" \
+            "${CONTROL_PLANE_URL}/tasks/${TASK_ID}/config" > "$RUNNER_TEMP/nodenesia-gost.json"
+          chmod 0600 "$RUNNER_TEMP/nodenesia-gost.json"
+
+      - name: Install and run GOST v3
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/nodenesia-gost.json"
+          get() { jq -er "$1" "$config"; }
+          url_encode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"; }
+          cleanup() { jobs -pr | xargs -r kill || true; shred -u "$config" 2>/dev/null || rm -f "$config"; }
+          trap cleanup EXIT INT TERM
+          version="$(get '.gost.version')"; local_port="$(get '.gost.localPort')"; bind_port="$(get '.gost.bindPort')"
+          master_host="$(get '.gost.masterHost')"; rendezvous_port="$(get '.gost.rendezvousPort')"; transport="$(get '.gost.tunnelTransport')"
+          socks_user="$(url_encode "$(get '.gost.socksUsername')")"; socks_pass="$(url_encode "$(get '.gost.socksPassword')")"
+          tunnel_user="$(url_encode "$(get '.gost.tunnelUsername')")"; tunnel_pass="$(url_encode "$(get '.gost.tunnelPassword')")"
+          [[ "$version" =~ ^3\.[0-9]+\.[0-9]+$ && "$transport" =~ ^(tcp|ws|wss)$ ]] || { echo 'Invalid runner configuration' >&2; exit 1; }
+          scheme="socks5"; [[ "$transport" == tcp ]] || scheme="socks5+${transport}"
+          socks_params=()
+          bandwidth_in="$(jq -r '.gost.bandwidthIn // empty' "$config")"; bandwidth_out="$(jq -r '.gost.bandwidthOut // empty' "$config")"; max_connections="$(jq -r '.gost.maxConnections // empty' "$config")"
+          [[ -z "$bandwidth_in" ]] || socks_params+=("limiter.in=$(url_encode "$bandwidth_in")")
+          [[ -z "$bandwidth_out" ]] || socks_params+=("limiter.out=$(url_encode "$bandwidth_out")")
+          [[ -z "$max_connections" ]] || socks_params+=("climiter=${max_connections}")
+          socks_query=""; ((${#socks_params[@]} == 0)) || { IFS='&'; socks_query="?${socks_params[*]}"; unset IFS; }
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${version}/gost_${version}_linux_amd64.tar.gz"
+          tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod 0755 /tmp/gost
+          /tmp/gost -L="socks5://${socks_user}:${socks_pass}@127.0.0.1:${local_port}${socks_query}" >/tmp/gost-socks.log 2>&1 &
+          sleep 2; kill -0 "$!"
+          /tmp/gost -L="rtcp://:${bind_port}/127.0.0.1:${local_port}" -F="${scheme}://${tunnel_user}:${tunnel_pass}@${master_host}:${rendezvous_port}" >/tmp/gost-tunnel.log 2>&1 &
+          sleep 5; kill -0 "$!"; echo 'GOST tunnel is running.'; sleep 3180

@@ -14,7 +14,9 @@
     "serve": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
     "clean:test-orders": "node scripts/clean-test-orders.mjs",
-    "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs"
+    "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs",
+    "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
+    "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

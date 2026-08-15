@@ -179,7 +179,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
 
       // Runloop is a separate provider: it always uses an X_SMALL Devbox with
       // a one-hour TTL. E2B retains its existing configuration unchanged.
-      const ttlMinutes = providerDriver === 'runloop'
+      const ttlMinutes = ['runloop', 'github'].includes(providerDriver)
         ? 60
         : Math.max(15, Number(this.config.get('E2B_SANDBOX_TIMEOUT_MINUTES') || 60));
       const renewBeforeMinutes = Math.max(1, Math.min(ttlMinutes - 1, Number(this.config.get('E2B_RENEW_BEFORE_MINUTES') || 10)));
@@ -191,6 +191,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       instance = await provider.provisionNode({
         nodeId: context.nodeId,
         orderId: context.orderId,
+        providerApiKeyId: capacity.apiKeyId,
         providerApiKey,
         template: String(providerConfig.metadata.template || (providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
         timeoutMs: ttlMinutes * 60000,
@@ -222,7 +223,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         expiresAt: sandboxExpiresAt,
       });
       const configuredReplacementTimeout = Number(this.config.get('GOST_REPLACEMENT_READY_TIMEOUT_MS') || 60000);
-      const readyTimeout = replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
+      const githubReadyTimeout = Math.max(60_000, Math.min(10 * 60_000, Number(this.config.get('GITHUB_READY_TIMEOUT_MS') || 180_000)));
+      const readyTimeout = providerDriver === 'github'
+        ? githubReadyTimeout
+        : replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
       await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
       if (replacing) {
         await this.repository.completeReplacement({
