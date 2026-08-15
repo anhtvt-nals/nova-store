@@ -663,7 +663,7 @@ function AdminCreditsPage() {
   return <PageLayout admin eyebrow="billing" title="Credits" body="Manual adjustments are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_auto] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span /></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_auto] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div className="flex items-center gap-2"><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge>{wallet.isTrial && <button className="text-xs font-bold text-[#13716e]" disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })}>Make regular</button>}</div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><Button className="min-h-8 px-3 text-xs" variant="outline" disabled={adjust.isPending} onClick={() => applyAdjustment(wallet)}><Plus size={14} /> Adjust</Button></div>)}</div></State></PageLayout>;
 }
 
-function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' | 'security' }) {
+function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' }) {
   const { user, signOut } = useAuth();
   const [, setLocation] = useLocation();
   const identity = useCurrentUser();
@@ -672,7 +672,7 @@ function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' |
   const logout = () => void signOut().then(() => { queryClient.clear(); setLocation('/'); });
   const linkClass = (selected: boolean) => cx('rounded-lg px-3 py-2 text-sm font-semibold transition', selected ? 'bg-[#def5f3] text-[#13716e]' : 'text-slate-500 hover:text-[#e05c37]');
   const { t } = useLocalePreferences();
-  return <header className="sticky top-0 z-40 border-b border-[#dbe7e9] bg-white/90 backdrop-blur-xl"><div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-4 px-5 lg:px-8"><Logo /><nav className="hidden items-center gap-1 md:flex"><Link href="/client" className={linkClass(active === 'services')}>{t('services')}</Link><Link href="/client/proxy" className={linkClass(active === 'proxy')}>SOCKS5 Proxy</Link><Link href="/client/security" className={linkClass(active === 'security')}>{t('security')}</Link></nav><div className="flex items-center gap-2"><LocaleSwitcher /><div className="hidden items-center gap-1.5 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-3 py-2 sm:flex" title="Credit balance"><Zap size={14} className="text-[#13716e]" /><span className="mono text-xs font-extrabold text-[#13716e]">{creditBalance.isLoading ? '…' : `${(creditBalance.data?.balance || 0).toLocaleString()} cr`}</span></div>{identity.data?.role === 'admin' && <Link href="/admin" className="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#13716e] hover:bg-[#def5f3] sm:inline-flex">{t('admin')}</Link>}<div className="hidden text-right sm:block"><p className="text-xs font-bold">{displayName}</p><p className="text-[10px] text-slate-500">{user?.email}</p></div><button onClick={logout} className="grid h-10 w-10 place-items-center rounded-xl border border-[#dbe7e9] bg-white text-slate-600 hover:border-[#f46c43] hover:text-[#e05c37]" aria-label={t('signOut')}><LogOut size={16} /></button></div></div></header>;
+  return <header className="sticky top-0 z-40 border-b border-[#dbe7e9] bg-white/90 backdrop-blur-xl"><div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-4 px-5 lg:px-8"><Logo /><nav className="hidden items-center gap-1 md:flex"><Link href="/client" className={linkClass(active === 'services')}>{t('services')}</Link><Link href="/client/proxy" className={linkClass(active === 'proxy')}>SOCKS5 Proxy</Link></nav><div className="flex items-center gap-2"><LocaleSwitcher /><div className="hidden items-center gap-1.5 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-3 py-2 sm:flex" title="Credit balance"><Zap size={14} className="text-[#13716e]" /><span className="mono text-xs font-extrabold text-[#13716e]">{creditBalance.isLoading ? '…' : `${(creditBalance.data?.balance || 0).toLocaleString()} cr`}</span></div>{identity.data?.role === 'admin' && <Link href="/admin" className="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#13716e] hover:bg-[#def5f3] sm:inline-flex">{t('admin')}</Link>}<div className="hidden text-right sm:block"><p className="text-xs font-bold">{displayName}</p><p className="text-[10px] text-slate-500">{user?.email}</p></div><button onClick={logout} className="grid h-10 w-10 place-items-center rounded-xl border border-[#dbe7e9] bg-white text-slate-600 hover:border-[#f46c43] hover:text-[#e05c37]" aria-label={t('signOut')}><LogOut size={16} /></button></div></div></header>;
 }
 
 function SecurityPage() {
@@ -782,7 +782,7 @@ function SecurityPage() {
   };
 
   return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]">
-    <ClientHeader active="security" />
+    <header className="border-b border-[#dbe7e9] bg-white"><div className="mx-auto flex h-[72px] max-w-3xl items-center px-5 lg:px-8"><Logo /><span className="mono ml-auto text-[10px] uppercase tracking-[.15em] text-slate-400">admin authentication</span></div></header>
     <main className="mx-auto max-w-3xl px-5 py-10 lg:px-8">
       <p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">account security</p>
       <h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em]">Multi-factor authentication</h1>
@@ -970,7 +970,7 @@ function PostAuthRedirect() {
 
   if (identity.isLoading) return <div className="grid min-h-[100dvh] place-items-center bg-[#f4f8f8]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
   if (identity.isError) return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3] px-4"><div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-xl"><CircleAlert className="mx-auto text-red-500" /><h1 className="mt-4 text-xl font-extrabold text-[#142037]">Unable to load your account</h1><p className="mt-2 text-sm text-slate-500">Check that the API server is running, then try again.</p><div className="mt-6 flex justify-center gap-3"><Button onClick={() => void identity.refetch()}>Try again</Button><Button variant="outline" onClick={() => void signOut()}>Sign out</Button></div></div></div>;
-  if (identity.data?.role === 'admin') return <Redirect to={identity.data.aal === 'aal2' ? '/admin' : '/client/security'} />;
+  if (identity.data?.role === 'admin') return <Redirect to={identity.data.aal === 'aal2' ? '/admin' : '/admin/security'} />;
   return <Redirect to="/client" />;
 }
 
@@ -1013,7 +1013,7 @@ function HomeRedirect() {
   return user ? <PostAuthRedirect /> : <Landing />;
 }
 
-type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-credits' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-settings' | 'admin-settings';
+type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'admin-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-credits' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-settings' | 'admin-settings';
 
 function Protected({ page }: { page: ProtectedPage }) {
   const { user, loading } = useAuth();
@@ -1022,11 +1022,11 @@ function Protected({ page }: { page: ProtectedPage }) {
   if (loading || (admin && user && identity.isLoading)) return <div className="grid min-h-[100dvh] place-items-center bg-[#f4f8f8]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
   if (!user) return <Redirect to="/sign-in" />;
   if (admin && (identity.isError || identity.data?.role !== 'admin')) return <Redirect to="/client" />;
-  if (admin && identity.data?.aal !== 'aal2') return <Redirect to="/client/security" />;
+  if (admin && page !== 'admin-security' && identity.data?.aal !== 'aal2') return <Redirect to="/admin/security" />;
   switch (page) {
     case 'client-dashboard': return <ClientDashboardPage />;
     case 'client-proxy': return <ClientPortalPage />;
-    case 'client-security': return <SecurityPage />;
+    case 'admin-security': return <SecurityPage />;
     case 'admin-overview': return <AdminOverviewPage />;
     case 'admin-catalog': return <AdminCatalogPage />;
     case 'admin-info-users': return <AdminUsersPage />;
@@ -1046,7 +1046,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function RouterViews() {
-  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={AuthPage} /><Route path="/sign-up/*?" component={() => <Redirect to="/sign-in" />} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/security" component={() => <Protected page="client-security" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
+  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={AuthPage} /><Route path="/sign-up/*?" component={() => <Redirect to="/sign-in" />} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/security" component={() => <Protected page="admin-security" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
 }
 
 function App() {
