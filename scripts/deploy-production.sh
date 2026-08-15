@@ -2,7 +2,7 @@
 
 # Deploy Nodenesia on an Ubuntu/Debian VPS. Run from the checked-out project:
 #   DOMAIN=app.example.com CERTBOT_EMAIL=ops@example.com bash scripts/deploy-production.sh
-# Optional: APP_DIR=/opt/nodenesia SERVICE_NAME=nodenesia-api NVM_DIR=/root/.nvm
+# Optional: APP_DIR=/opt/nodenesia SERVICE_NAME=nodenesia-api DEPLOY_USER=ubuntu
 
 set -Eeuo pipefail
 
@@ -12,8 +12,11 @@ DOMAIN="${DOMAIN:-}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 API_PORT="${API_PORT:-3001}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
-SERVICE_USER="${SERVICE_USER:-root}"
-NVM_DIR="${NVM_DIR:-${HOME}/.nvm}"
+SERVICE_USER="${SERVICE_USER:-${DEPLOY_USER:-${SUDO_USER:-root}}}"
+DEFAULT_SERVICE_GROUP="$(id -gn "$SERVICE_USER" 2>/dev/null || printf '%s' "$SERVICE_USER")"
+SERVICE_GROUP="${SERVICE_GROUP:-$DEFAULT_SERVICE_GROUP}"
+SERVICE_HOME="$(getent passwd "$SERVICE_USER" 2>/dev/null | cut -d: -f6 || true)"
+NVM_DIR="${NVM_DIR:-${SERVICE_HOME:-${HOME}}/.nvm}"
 NODE_BIN=""
 NGINX_SITE="/etc/nginx/sites-available/${SERVICE_NAME}"
 
@@ -21,6 +24,7 @@ die() { printf '[nodenesia-deploy] ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '[nodenesia-deploy] %s\n' "$*"; }
 
 [[ "$EUID" -eq 0 ]] || die 'Log in as root, then run: DOMAIN=... CERTBOT_EMAIL=... bash scripts/deploy-production.sh'
+id "$SERVICE_USER" >/dev/null 2>&1 || die "SERVICE_USER=$SERVICE_USER does not exist"
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ && "$DOMAIN" == *.* ]] || die 'DOMAIN must be a valid hostname, for example app.example.com'
 [[ "$CERTBOT_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || die 'CERTBOT_EMAIL must be a valid email address'
 [[ -f "$APP_DIR/package.json" ]] || die "package.json was not found in APP_DIR=$APP_DIR"
@@ -68,7 +72,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=${SERVICE_USER}
-Group=${SERVICE_USER}
+Group=${SERVICE_GROUP}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 Environment=NODE_ENV=production
