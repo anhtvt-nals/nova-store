@@ -43,6 +43,9 @@ export class OrdersService {
 
   async create(profileId: number, dto: CreateOrderDto) {
     await this.getProxyPricing(dto.productId);
+    if (await this.isTrialAlreadyUsed(profileId)) {
+      throw new BadRequestException('Your one-day trial has already been used. Upgrade to a regular account to rent more nodes.');
+    }
     const availableNodes = await this.availableCustomerCapacity();
     if (dto.nodeCount > availableNodes) {
       throw new BadRequestException(`Only ${availableNodes} proxy node${availableNodes === 1 ? '' : 's'} are currently available`);
@@ -64,6 +67,14 @@ export class OrdersService {
   private async availableCustomerCapacity() {
     const result = await this.db.client.rpc('available_proxy_customer_capacity');
     return Math.max(0, Number(this.db.unwrap(result, 'Unable to check proxy capacity') || 0));
+  }
+
+  private async isTrialAlreadyUsed(profileId: number) {
+    const profileResult = await this.db.client.from('profiles').select('is_trial').eq('id', profileId).maybeSingle();
+    const profile = this.db.unwrap(profileResult, 'Unable to validate trial account');
+    if (!profile?.is_trial) return false;
+    const orderResult = await this.db.client.from('orders').select('id').eq('profile_id', profileId).limit(1);
+    return this.db.unwrap(orderResult, 'Unable to validate trial usage').length > 0;
   }
 
   private async getProxyPricing(productId: number) {

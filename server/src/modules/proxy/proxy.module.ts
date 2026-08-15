@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ProviderRegistry } from './provider/provider.registry';
 import { E2bProvider } from './provider/e2b.provider';
+import { RunloopProvider } from './provider/runloop.provider';
 import { GostCommandBuilder } from './gost/gost-command.builder';
 import { SocksHealthService } from './gost/socks-health.service';
 import { ProvisioningProcessor } from './provisioning/provisioning.processor';
@@ -23,16 +24,18 @@ import { ProxyService } from './proxy.service';
     GostCommandBuilder,
     SocksHealthService,
     E2bProvider,
+    RunloopProvider,
     ProvisioningRepository,
     ProvisioningProcessor,
     {
       provide: ProviderRegistry,
-      useFactory: (e2b: E2bProvider) => {
+      useFactory: (e2b: E2bProvider, runloop: RunloopProvider) => {
         const registry = new ProviderRegistry();
         registry.register(e2b);
+        registry.register(runloop);
         return registry;
       },
-      inject: [E2bProvider],
+      inject: [E2bProvider, RunloopProvider],
     },
   ],
   exports: [ProxyService, ProxyCredentialService, ProviderRegistry],

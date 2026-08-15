@@ -177,7 +177,11 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         await this.proxy.reportStatus(context.nodeId, { status: 'provisioning' });
       }
 
-      const ttlMinutes = Math.max(15, Number(this.config.get('E2B_SANDBOX_TIMEOUT_MINUTES') || 60));
+      // Runloop is a separate provider: it always uses an X_SMALL Devbox with
+      // a one-hour TTL. E2B retains its existing configuration unchanged.
+      const ttlMinutes = providerDriver === 'runloop'
+        ? 60
+        : Math.max(15, Number(this.config.get('E2B_SANDBOX_TIMEOUT_MINUTES') || 60));
       const renewBeforeMinutes = Math.max(1, Math.min(ttlMinutes - 1, Number(this.config.get('E2B_RENEW_BEFORE_MINUTES') || 10)));
       const sandboxExpiresAt = new Date(Date.now() + ttlMinutes * 60000);
       const nextRotationAt = new Date(sandboxExpiresAt.getTime() - renewBeforeMinutes * 60000);
@@ -188,7 +192,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         nodeId: context.nodeId,
         orderId: context.orderId,
         providerApiKey,
-        template: String(providerConfig.metadata.template || this.config.get('E2B_TEMPLATE') || '') || undefined,
+        template: String(providerConfig.metadata.template || (providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
         timeoutMs: ttlMinutes * 60000,
         expiresAt: sandboxExpiresAt,
         metadata: { service: 'socks5' },
