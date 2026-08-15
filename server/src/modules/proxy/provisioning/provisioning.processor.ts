@@ -297,8 +297,12 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           const oldEnoughToBeOrphan = !instance.startedAt || Date.now() - instance.startedAt.getTime() > 5 * 60_000;
           if (!trackedIds.has(instance.externalInstanceId) && oldEnoughToBeOrphan) {
             this.logger.warn(`Terminating untracked ${driver} sandbox ${instance.externalInstanceId}`);
-            await provider.terminateInstance(instance.externalInstanceId, apiKey).catch(error =>
-              this.logger.error(`Unable to terminate orphan ${instance.externalInstanceId}: ${error instanceof Error ? error.message : error}`));
+            try {
+              await provider.terminateInstance(instance.externalInstanceId, apiKey);
+              await this.repository.markInstanceStopped(Number(target.provider_id), instance.externalInstanceId, 'stopped');
+            } catch (error) {
+              this.logger.error(`Unable to terminate orphan ${instance.externalInstanceId}: ${error instanceof Error ? error.message : error}`);
+            }
           }
         }
         for (const instance of tracked) {

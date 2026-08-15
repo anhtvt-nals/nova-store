@@ -22,6 +22,7 @@ export class OrdersService {
     const rateRow = this.db.unwrap(rateResult, 'Unable to load credit conversion');
     const creditsPerUsd = Number(rateRow?.value) > 0 ? Number(rateRow?.value) : 100;
     const total = Number((unitPrice * dto.nodeCount * dto.rentalDays).toFixed(4));
+    const availableNodes = await this.availableCustomerCapacity();
     return {
       unitPrice,
       nodeCount: dto.nodeCount,
@@ -29,6 +30,8 @@ export class OrdersService {
       total,
       currency: product.currency,
       creditCost: product.currency === 'USD' ? Number(Math.ceil(total * creditsPerUsd * 100) / 100) : null,
+      availableNodes,
+      canFulfill: dto.nodeCount <= availableNodes,
     };
   }
 
@@ -40,6 +43,10 @@ export class OrdersService {
 
   async create(profileId: number, dto: CreateOrderDto) {
     await this.getProxyPricing(dto.productId);
+    const availableNodes = await this.availableCustomerCapacity();
+    if (dto.nodeCount > availableNodes) {
+      throw new BadRequestException(`Only ${availableNodes} proxy node${availableNodes === 1 ? '' : 's'} are currently available`);
+    }
     const created = await this.db.client.rpc('create_proxy_order', {
       target_profile_id: profileId,
       target_product_id: dto.productId,
@@ -52,6 +59,11 @@ export class OrdersService {
     const order = this.db.unwrap(result, 'Order was created but could not be reloaded');
     if (!order) throw new NotFoundException('Order was created but could not be reloaded');
     return mapOrder(order);
+  }
+
+  private async availableCustomerCapacity() {
+    const result = await this.db.client.rpc('available_proxy_customer_capacity');
+    return Math.max(0, Number(this.db.unwrap(result, 'Unable to check proxy capacity') || 0));
   }
 
   private async getProxyPricing(productId: number) {

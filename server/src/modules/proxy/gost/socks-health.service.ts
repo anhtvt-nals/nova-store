@@ -7,14 +7,20 @@ export class SocksHealthService {
     return new Promise(resolve => {
       const socket = net.createConnection({ host, port });
       let settled = false;
+      let deadline: NodeJS.Timeout | undefined;
+      // socket.setTimeout is an idle timeout and can be extended by partial
+      // traffic. Keep a wall-clock guard so a provisioning job can never hold
+      // its lease forever while a SOCKS server stalls mid-handshake.
       let buffer = Buffer.alloc(0);
       let stage: 'greeting' | 'auth' | 'connect' = 'greeting';
       const finish = (ok: boolean) => {
         if (settled) return;
         settled = true;
+        if (deadline) clearTimeout(deadline);
         socket.destroy();
         resolve(ok);
       };
+      deadline = setTimeout(() => finish(false), timeoutMs);
       socket.setTimeout(timeoutMs, () => finish(false));
       socket.on('error', () => finish(false));
       socket.on('connect', () => socket.write(Buffer.from([0x05, 0x01, 0x02])));

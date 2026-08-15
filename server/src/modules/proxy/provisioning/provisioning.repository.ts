@@ -210,11 +210,18 @@ export class ProvisioningRepository {
 
   async trackedInstances(providerId: number, apiKeyId: number) {
     const result = await this.db.client.from('proxy_node_instances')
-      .select('external_instance_id,status')
+      .select('external_instance_id,status,proxy_nodes(current_instance_id)')
       .eq('provider_id', providerId)
       .eq('provider_api_key_id', apiKeyId)
       .in('status', ['provisioning', 'running']);
-    return this.db.unwrap(result, 'Unable to load tracked provider instances') as Array<{ external_instance_id: string; status: string }>;
+    return (this.db.unwrap(result, 'Unable to load tracked provider instances') as Array<any>)
+      // A sandbox is authoritative only after complete()/completeReplacement()
+      // attaches it to its node. A restart during health-check leaves a row in
+      // proxy_node_instances but no current_instance_id; treat it as orphan.
+      .filter(row => {
+        const node = Array.isArray(row.proxy_nodes) ? row.proxy_nodes[0] : row.proxy_nodes;
+        return node?.current_instance_id === row.external_instance_id;
+      });
   }
 
   async complete(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; publicHost: string; tunnelPort: number; nextRotationAt: Date }) {

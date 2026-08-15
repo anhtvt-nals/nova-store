@@ -150,6 +150,8 @@ export interface OrderQuote {
   total: number;
   currency: string;
   creditCost: number | null;
+  availableNodes: number;
+  canFulfill: boolean;
 }
 export interface CreditBalance { balance: number; }
 export interface Category {
