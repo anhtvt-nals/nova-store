@@ -30,6 +30,7 @@ const socksPassword = String(process.env.BLAXEL_TEST_SOCKS_PASSWORD || alphaNume
 
 let sandboxName = '';
 let sandboxUrl = '';
+let sandboxCreated = false;
 let cleaning = false;
 const keepOnFailure = process.env.BLAXEL_TEST_KEEP_ON_FAILURE === 'true';
 
@@ -145,7 +146,7 @@ function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 async function cleanup(exitCode = 0) {
   if (cleaning) return;
   cleaning = true;
-  if (sandboxName) {
+  if (sandboxCreated && sandboxName) {
     process.stdout.write(`\n[blaxel-test] Cleaning sandbox ${sandboxName}…\n`);
     try { await blaxel('DELETE', `/sandboxes/${encodeURIComponent(sandboxName)}`); }
     catch (error) { process.stderr.write(`[blaxel-test] Cleanup failed: ${error instanceof Error ? error.message : error}\n`); exitCode = 1; }
@@ -178,10 +179,22 @@ try {
       region,
       // Blaxel sandboxes have no direct HTTPS egress in this workspace. This
       // enables the platform HTTP(S) proxy and its injected proxy variables.
-      ...(enableNetworkProxy ? { network: { proxy: { routing: [{ destinations: '["*"]' }] } } } : {}),
+      ...(enableNetworkProxy ? {
+        network: {
+          proxy: {
+            routing: [{
+              destinations: '["api.ipify.org","github.com","*.github.com","*.githubusercontent.com"]',
+              headers: '{}',
+              body: '{}',
+              secrets: '{}',
+            }],
+          },
+        },
+      } : {}),
       runtime: { image, memory, ttl: '1h' },
     },
   });
+  sandboxCreated = true;
   const sandbox = await waitForDeployment(sandboxName);
   sandboxUrl = sandbox.metadata.url;
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
@@ -206,7 +219,7 @@ try {
 } catch (error) {
   process.stderr.write(`[blaxel-test] ${error instanceof Error ? error.message : error}\n`);
   await diagnose();
-  if (keepOnFailure && sandboxName) {
+  if (keepOnFailure && sandboxCreated && sandboxName) {
     process.stderr.write(`[blaxel-test] Keeping ${sandboxName} for inspection; delete it manually in Blaxel Console.\n`);
     process.exit(1);
   }
