@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${STATIC_GOST_VERSION:=3.3.0}"
+: "${STATIC_GOST_VERSION:=3.2.6}"
 : "${STATIC_GOST_API_ADDR:=127.0.0.1:18081}"
+: "${STATIC_GOST_METRICS_ADDR:=127.0.0.1:19000}"
 : "${STATIC_GOST_SERVICE_USER:=nodenesia-gost}"
-: "${STATIC_GOST_BANDWIDTH_PER_PORT:=50MB}"
+: "${STATIC_GOST_BANDWIDTH_PER_PORT:=5MB}"
 : "${STATIC_GOST_BANDWIDTH_PER_CONNECTION:=10MB}"
 : "${STATIC_GOST_MAX_CONNECTIONS_PER_PORT:=150}"
 : "${STATIC_GOST_MAX_CONNECTIONS_PER_IP:=20}"
@@ -15,12 +16,16 @@ if [[ "${EUID}" -ne 0 ]]; then
   echo '[static-gost] Run with sudo/root.' >&2
   exit 1
 fi
-if ! [[ "$STATIC_GOST_VERSION" =~ ^3\.[3-9]\.[0-9]+$ ]]; then
-  echo '[static-gost] STATIC_GOST_VERSION must be v3.3.0 or newer for quota support.' >&2
+if ! [[ "$STATIC_GOST_VERSION" =~ ^3\.2\.6$ ]]; then
+  echo '[static-gost] STATIC_GOST_VERSION must be exactly v3.2.6 (the pinned stable release).' >&2
   exit 1
 fi
 if ! [[ "$STATIC_GOST_API_ADDR" =~ ^127\.0\.0\.1:[0-9]{2,5}$ ]]; then
   echo '[static-gost] STATIC_GOST_API_ADDR must be IPv4 loopback, for example 127.0.0.1:18081.' >&2
+  exit 1
+fi
+if ! [[ "$STATIC_GOST_METRICS_ADDR" =~ ^127\.0\.0\.1:[0-9]{2,5}$ ]]; then
+  echo '[static-gost] STATIC_GOST_METRICS_ADDR must be IPv4 loopback, for example 127.0.0.1:19000.' >&2
   exit 1
 fi
 for value in "$STATIC_GOST_MAX_CONNECTIONS_PER_PORT" "$STATIC_GOST_MAX_CONNECTIONS_PER_IP" "$STATIC_GOST_REQUESTS_PER_SECOND_PER_PORT" "$STATIC_GOST_REQUESTS_PER_SECOND_PER_IP"; do
@@ -59,7 +64,7 @@ Wants=network-online.target
 Type=simple
 User=${STATIC_GOST_SERVICE_USER}
 Group=${STATIC_GOST_SERVICE_USER}
-ExecStart=/usr/local/bin/gost-static -C /etc/nodenesia-static-gost/gost.json -api ${STATIC_GOST_API_ADDR}
+ExecStart=/usr/local/bin/gost-static -C /etc/nodenesia-static-gost/gost.json -api ${STATIC_GOST_API_ADDR} -metrics ${STATIC_GOST_METRICS_ADDR}
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
@@ -77,4 +82,4 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now nodenesia-static-gost
-echo "[static-gost] Ready. Web API is private at ${STATIC_GOST_API_ADDR}. Do not expose it through nginx."
+echo "[static-gost] Ready. API (${STATIC_GOST_API_ADDR}) and metrics (${STATIC_GOST_METRICS_ADDR}) are private; do not expose either through nginx."

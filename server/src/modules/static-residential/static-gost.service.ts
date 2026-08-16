@@ -20,6 +20,7 @@ export interface StaticGostNode {
 @Injectable()
 export class StaticGostService {
   private readonly apiUrl: string;
+  private readonly metricsUrl: string;
 
   constructor(config: ConfigService) {
     const address = config.get<string>('STATIC_GOST_API_ADDR') || '127.0.0.1:18081';
@@ -28,21 +29,20 @@ export class StaticGostService {
       throw new Error('STATIC_GOST_API_ADDR must be a loopback IP address and port');
     }
     this.apiUrl = `${parsed.origin}/config`;
+    const metricsAddress = config.get<string>('STATIC_GOST_METRICS_ADDR') || '127.0.0.1:19000';
+    const metrics = new URL(`http://${metricsAddress}/metrics`);
+    if (!['127.0.0.1', '::1', 'localhost'].includes(metrics.hostname) || !metrics.port) {
+      throw new Error('STATIC_GOST_METRICS_ADDR must be a loopback IP address and port');
+    }
+    this.metricsUrl = metrics.toString();
   }
 
   async upsertOrder(nodes: StaticGostNode[]) {
     if (!nodes.length) return;
-    const first = nodes[0];
-    const quotaName = this.quotaName(first.orderId);
-    await this.put(`/quotas/${quotaName}`, {
-      name: quotaName,
-      limit: '5GB', direction: 'total', startsAt: first.activatedAt, expiresAt: first.expiresAt, flush: '5s',
-      store: { type: 'file', file: `/var/lib/nodenesia-static-gost/${quotaName}.json` },
-    }, true);
-    for (const node of nodes) await this.upsertNode(node, quotaName);
+    for (const node of nodes) await this.upsertNode(node);
   }
 
-  async upsertNode(node: StaticGostNode, quotaName = this.quotaName(node.orderId)) {
+  async upsertNode(node: StaticGostNode) {
     const chainName = this.chainName(node.id);
     await this.put(`/chains/${chainName}`, {
       name: chainName,
@@ -50,28 +50,34 @@ export class StaticGostService {
         connector: { type: 'socks5', auth: { username: node.upstreamUsername, password: node.upstreamPassword } }, dialer: { type: 'tcp' } }] }],
     }, true);
     await this.put(`/services/${node.serviceName}`, {
-      name: node.serviceName, addr: `:${node.port}`, quotas: [quotaName], limiter: 'static-bandwidth', climiter: 'static-connections', rlimiter: 'static-requests',
+      name: node.serviceName, addr: `:${node.port}`, limiter: 'static-bandwidth', climiter: 'static-connections', rlimiter: 'static-requests',
       handler: { type: 'socks5', auth: { username: node.username, password: node.password }, chain: chainName }, listener: { type: 'tcp' },
     }, true);
   }
 
   async removeOrder(orderId: number, nodes: Array<{ id: number; serviceName: string }>) {
     await Promise.all(nodes.flatMap(node => [this.remove(`/services/${node.serviceName}`), this.remove(`/chains/${this.chainName(node.id)}`)]));
-    await this.remove(`/quotas/${this.quotaName(orderId)}`);
+    void orderId;
   }
 
-  async quota(orderId: number): Promise<{ used: number; limit: number; blocked: boolean } | null> {
-    try {
-      const result: any = await this.request(`/quotas/${this.quotaName(orderId)}`);
-      const status = result?.data?.status || result?.status;
-      return status ? { used: Number(status.used || 0), limit: Number(status.limit || 0), blocked: Boolean(status.blocked) } : null;
-    } catch (error: any) {
-      if (error?.status === 404) return null;
-      throw error;
+  async usageByService() {
+    let response: Response;
+    try { response = await fetch(this.metricsUrl, { signal: AbortSignal.timeout(3_000) }); }
+    catch { throw new ServiceUnavailableException('Static GOST metrics are unavailable'); }
+    if (!response.ok) throw new ServiceUnavailableException(`Static GOST metrics returned ${response.status}`);
+    const totals = new Map<string, number>();
+    const pattern = /^gost_service_transfer_(?:input|output)_bytes_total\{([^}]*)\}\s+([0-9.eE+-]+)$/;
+    for (const line of (await response.text()).split('\n')) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      const service = /(?:^|,)service="((?:\\.|[^"])*)"/.exec(match[1])?.[1];
+      const bytes = Number(match[2]);
+      if (!service || !Number.isFinite(bytes) || bytes < 0) continue;
+      totals.set(service.replace(/\\"/g, '"').replace(/\\\\/g, '\\'), (totals.get(service) || 0) + bytes);
     }
+    return totals;
   }
 
-  private quotaName(orderId: number) { return `static-residential-order-${orderId}`; }
   private chainName(nodeId: number) { return `static-residential-node-${nodeId}`; }
   private address(host: string, port: number) { return isIP(host) === 6 ? `[${host}]:${port}` : `${host}:${port}`; }
 

@@ -15,6 +15,7 @@ const DAYS = [1, 3, 7, 15, 30];
 export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StaticResidentialService.name);
   private readonly enabled: boolean;
+  private readonly usagePollMs: number;
   private timer?: NodeJS.Timeout;
   private reconciling = false;
 
@@ -24,12 +25,16 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     private readonly secrets: ProxySecretService,
     private readonly gost: StaticGostService,
     config: ConfigService,
-  ) { this.enabled = config.get<string>('STATIC_RESIDENTIAL_ENABLED') === 'true'; }
+  ) {
+    this.enabled = config.get<string>('STATIC_RESIDENTIAL_ENABLED') === 'true';
+    const configuredPoll = Number(config.get<string>('STATIC_GOST_USAGE_POLL_MS') || 1_000);
+    this.usagePollMs = Number.isFinite(configuredPoll) ? Math.max(500, Math.min(configuredPoll, 5_000)) : 1_000;
+  }
 
   onModuleInit() {
     if (!this.enabled) return;
     void this.reconcile();
-    this.timer = setInterval(() => void this.reconcile(), 15_000);
+    this.timer = setInterval(() => void this.reconcile(), this.usagePollMs);
     this.timer.unref();
   }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
@@ -130,17 +135,28 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     if (this.reconciling) return; this.reconciling = true;
     try {
       const now = new Date().toISOString();
-      const ordersResult = await this.db.client.from('static_residential_orders').select('id,status,expires_at,static_residential_nodes(id,service_name,upstream_proxy_id,public_port,status,next_upstream_rotation_at,static_residential_proxies(host,port,username,password_ciphertext,password_iv,password_tag))').in('status', ['active', 'quota_exceeded', 'expired']);
+      const ordersResult = await this.db.client.from('static_residential_orders').select('id,status,expires_at,used_bytes,static_residential_nodes(id,service_name,upstream_proxy_id,public_port,status,next_upstream_rotation_at,metric_bytes_observed,static_residential_proxies(host,port,username,password_ciphertext,password_iv,password_tag))').in('status', ['active', 'quota_exceeded', 'expired']);
       const orders = this.db.unwrap(ordersResult, 'Unable to reconcile static residential orders') as any[];
+      const usage = await this.gost.usageByService();
       for (const order of orders) {
         const nodes = order.static_residential_nodes || [];
         if (order.status === 'active' && new Date(order.expires_at) <= new Date()) { await this.stopOrder(order.id, nodes, 'expired'); continue; }
         if (order.status !== 'active') continue;
-        const quota = await this.gost.quota(order.id);
-        if (quota) {
-          await this.db.client.from('static_residential_orders').update({ used_bytes: Math.min(QUOTA_BYTES, quota.used), updated_at: now }).eq('id', order.id);
-          if (quota.blocked || quota.used >= QUOTA_BYTES) { await this.stopOrder(order.id, nodes, 'quota_exceeded'); continue; }
+        let delta = 0;
+        for (const node of nodes) {
+          const observed = usage.get(node.service_name) || 0;
+          const previous = Number(node.metric_bytes_observed || 0);
+          // Prometheus counters reset when GOST restarts. In that case the new
+          // counter is additional traffic, not a reason to erase prior usage.
+          const increment = observed >= previous ? observed - previous : observed;
+          if (increment > 0 || observed !== previous) {
+            delta += increment;
+            await this.db.client.from('static_residential_nodes').update({ metric_bytes_observed: Math.floor(observed), updated_at: now }).eq('id', node.id);
+          }
         }
+        const used = Math.min(QUOTA_BYTES, Number(order.used_bytes || 0) + delta);
+        if (delta > 0) await this.db.client.from('static_residential_orders').update({ used_bytes: used, updated_at: now }).eq('id', order.id);
+        if (used >= QUOTA_BYTES) { await this.stopOrder(order.id, nodes, 'quota_exceeded'); continue; }
         const due = nodes.filter((node: any) => node.status === 'active' && new Date(node.next_upstream_rotation_at) <= new Date());
         for (const node of due) await this.rotateNode(node.id, order.id);
       }

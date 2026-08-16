@@ -45,16 +45,16 @@ Migration `202608140008_dynamic_proxy_allocation.sql` removes static resource al
 
 The static-residential module is isolated from sandbox proxy provisioning. Each non-trial order receives exactly five stable public SOCKS5 ports, shares a fixed 5GB total traffic quota, and swaps each hidden upstream SOCKS5 endpoint every hour. End users only receive their Nodenesia credential and the master hostname; imported upstream credentials are encrypted and never sent to a client.
 
-Before enabling checkout, install the separate GOST v3.3+ control plane on the master VPS and keep its API loopback-only:
+Before enabling checkout, install the separate pinned GOST v3.2.6 control plane on the master VPS and keep its API loopback-only:
 
 ```bash
-sudo STATIC_GOST_VERSION=3.3.0 STATIC_GOST_API_ADDR=127.0.0.1:18081 \
+sudo STATIC_GOST_VERSION=3.2.6 STATIC_GOST_API_ADDR=127.0.0.1:18081 STATIC_GOST_METRICS_ADDR=127.0.0.1:19000 \
   bash scripts/install-gost-static-master.sh
 ```
 
-Set `STATIC_RESIDENTIAL_ENABLED=true` and `STATIC_GOST_API_ADDR=127.0.0.1:18081` in the API environment. Open only the public static range `10000:20000` in the VPS firewall; do not expose port `18081`. In Admin → Static residential, set the USD/GB/day price and import one `socks5://user:pass@host:port` URL per line. At least five available upstreams are required to create an order.
+Set `STATIC_RESIDENTIAL_ENABLED=true`, `STATIC_GOST_API_ADDR=127.0.0.1:18081`, `STATIC_GOST_METRICS_ADDR=127.0.0.1:19000`, and `STATIC_GOST_USAGE_POLL_MS=1000` in the API environment. Open only the public static range `10000:20000` in the VPS firewall; do not expose ports `18081` or `19000`. In Admin → Static residential, set the USD/GB/day price and import one `socks5://user:pass@host:port` URL per line. At least five available upstreams are required to create an order.
 
-The installer creates an unprivileged `nodenesia-gost` user and configures per-port bandwidth, connection, and request limits. Its defaults can be tuned only at installation/reinstallation time with `STATIC_GOST_*` variables (documented in `.env.example`). Imported upstream hostnames are resolved once and stored as validated public IP literals; loopback, private, link-local, multicast, and DNS-rebinding targets are rejected.
+The installer pins GOST `3.2.6`, creates an unprivileged `nodenesia-gost` user, and configures a conservative 5MB/s per-port bandwidth limit plus connection and request limits. Nest samples GOST's private Prometheus counters once per second and disables an order at its 5GB soft cap. This is intentionally a bounded soft limit: active connections can consume a small amount after the final sample. Imported upstream hostnames are resolved once and stored as validated public IP literals; loopback, private, link-local, multicast, and DNS-rebinding targets are rejected.
 
 `worker/app.js` is retained only as reference material and now refuses to start unless `ALLOW_LEGACY_WORKER=true` is explicitly supplied to the process. It is not part of the supported production runtime.
 
