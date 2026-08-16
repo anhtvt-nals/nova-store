@@ -59,6 +59,9 @@ function parseKey(value) {
   }
   return { workspace, apiKey };
 }
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`;
+}
 
 async function blaxel(method, path, body) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -101,7 +104,8 @@ async function exec(sandboxUrl, name, command, env = {}, waitForCompletion = fal
   if (!response.ok) throw new Error(`Blaxel sandbox process ${name} failed (${response.status}): ${(await response.text()).slice(0, 500) || response.statusText}`);
   if (waitForCompletion) {
     const result = await response.json();
-    if (result.exitCode !== undefined && result.exitCode !== 0) throw new Error(`Blaxel sandbox process ${name} exited with ${result.exitCode}: ${(result.logs || '').slice(-500)}`);
+    const output = [result.logs, result.stderr, result.stdout].filter(Boolean).join('\n').slice(-1000);
+    if (result.exitCode !== undefined && result.exitCode !== 0) throw new Error(`Blaxel sandbox process ${name} exited with ${result.exitCode}: ${output || 'no process output returned'}`);
     return result;
   }
 }
@@ -178,7 +182,22 @@ try {
   sandboxUrl = sandbox.metadata.url;
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
   await exec(sandboxUrl, 'install-gost', install, {}, true, 90);
-  await exec(sandboxUrl, 'check-rendezvous', 'node -e "const net=require(\'net\');const socket=net.createConnection({host:process.env.TEST_HOST,port:Number(process.env.TEST_PORT)});socket.setTimeout(5000);socket.on(\'connect\',()=>process.exit(0));socket.on(\'timeout\',()=>process.exit(1));socket.on(\'error\',()=>process.exit(1));"', { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
+  const egressCheck = "fetch('https://api.ipify.org').then(response=>{if(!response.ok)throw new Error('HTTP '+response.status);return response.text()}).then(ip=>console.log(ip.trim())).catch(error=>{console.error('ERROR '+error.message);process.exit(1)})";
+  const egress = await exec(sandboxUrl, 'check-egress-ip', `node -e ${shellQuote(egressCheck)}`, {}, true, 15);
+  const egressOutput = [egress?.logs, egress?.stdout].filter(Boolean).join('\n').trim();
+  if (egressOutput) process.stdout.write(`[blaxel-test] Sandbox egress IP: ${egressOutput}\n`);
+  const rendezvousCheck = [
+    "const net=require('net');",
+    'const host=process.env.TEST_HOST;',
+    'const port=Number(process.env.TEST_PORT);',
+    'const started=Date.now();',
+    'const socket=net.createConnection({host,port});',
+    'socket.setTimeout(5000);',
+    "socket.on('connect',()=>{console.log('CONNECTED '+host+':'+port+' local='+socket.localAddress+' in '+(Date.now()-started)+'ms');process.exit(0)});",
+    "socket.on('timeout',()=>{console.error('TIMEOUT '+host+':'+port+' after '+(Date.now()-started)+'ms');process.exit(1)});",
+    "socket.on('error',error=>{console.error('ERROR '+(error.code||'UNKNOWN')+' '+error.message);process.exit(1)});",
+  ].join('');
+  await exec(sandboxUrl, 'check-rendezvous', `node -e ${shellQuote(rendezvousCheck)}`, { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
   const query = gostQuery();
   await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
