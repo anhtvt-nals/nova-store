@@ -43,10 +43,20 @@ export class BlaxelProvider implements ComputeProvider {
       const ready = await this.waitForDeployment(sandboxName, workspace, apiKey);
       const sandboxUrl = ready.metadata?.url;
       if (!sandboxUrl) throw new Error(`Blaxel sandbox ${sandboxName} did not return its sandbox API URL`);
+      await this.exec(
+        sandboxUrl,
+        apiKey,
+        'check-rendezvous',
+        'timeout 5 bash -c \'exec 3<>/dev/tcp/"$TEST_HOST"/"$TEST_PORT"\' && echo "CONNECTED $TEST_HOST:$TEST_PORT" || { status=$?; echo "TCP_CHECK_FAILED status=$status $TEST_HOST:$TEST_PORT"; exit $status; }',
+        { TEST_HOST: input.gost.masterHost, TEST_PORT: String(input.gost.rendezvousPort) },
+        true,
+        10,
+      );
       const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; ${this.gost.install(input.gost.version)}`;
       await this.exec(sandboxUrl, apiKey, 'install-gost', install, {}, true, 60);
       const local = this.gost.localSocks(input);
       await this.exec(sandboxUrl, apiKey, 'gost-socks', local.command, local.envs, false);
+      await this.exec(sandboxUrl, apiKey, 'probe-local-socks', this.gost.probeLocal(input.gost.localPort), {}, true, 30);
       const tunnel = this.gost.reverseTunnel(input);
       await this.exec(sandboxUrl, apiKey, 'gost-tunnel', tunnel.command, tunnel.envs, false);
       return this.mapInstance(ready);
@@ -106,8 +116,9 @@ export class BlaxelProvider implements ComputeProvider {
       throw new Error(`Blaxel sandbox process ${name} failed (${response.status}): ${detail || response.statusText}`);
     }
     if (waitForCompletion) {
-      const result = await response.json() as { exitCode?: number; logs?: string };
-      if (result.exitCode !== undefined && result.exitCode !== 0) throw new Error(`Blaxel sandbox process ${name} exited with ${result.exitCode}: ${(result.logs || '').slice(-500)}`);
+      const result = await response.json() as { exitCode?: number; logs?: string; stdout?: string; stderr?: string };
+      const output = [result.logs, result.stderr, result.stdout].filter(Boolean).join('\n').slice(-1000);
+      if (result.exitCode !== undefined && result.exitCode !== 0) throw new Error(`Blaxel sandbox process ${name} exited with ${result.exitCode}: ${output || 'no process output returned'}`);
     }
   }
 
