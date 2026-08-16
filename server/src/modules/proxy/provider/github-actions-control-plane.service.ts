@@ -16,18 +16,26 @@ export class GithubActionsControlPlaneService {
 
   constructor(private readonly db: DatabaseService, private readonly secrets: ProxySecretService, private readonly config: ConfigService) {}
 
-  async createTask(input: ProvisionNodeInput, owner: string) {
+  async createTask(input: ProvisionNodeInput, owner: string, repository: string) {
     const encrypted = this.secrets.encrypt(JSON.stringify({ gost: input.gost }), 'PROXY_SECRET_ENCRYPTION_KEY');
     const result = await this.db.client.from('github_runner_tasks').insert({
       node_id: input.nodeId,
       provider_api_key_id: input.providerApiKeyId,
       github_owner: owner,
+      repository,
       config_ciphertext: encrypted.ciphertext,
       config_iv: encrypted.iv,
       config_tag: encrypted.tag,
       expires_at: input.expiresAt.toISOString(),
     }).select('id').single();
     return this.db.unwrap(result, 'Unable to create GitHub runner task').id as string;
+  }
+
+  async repositoryForKey(apiKeyId: number) {
+    const result = await this.db.client.from('provider_api_keys').select('github_repository').eq('id', apiKeyId).maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to load GitHub runner repository') as { github_repository: string | null } | null;
+    if (!row?.github_repository || !/^[A-Za-z0-9_.-]+$/.test(row.github_repository)) throw new Error('GitHub provider API key has no provisioned runner repository');
+    return row.github_repository;
   }
 
   async claim(taskId: string, oidcToken: string, runId: number) {

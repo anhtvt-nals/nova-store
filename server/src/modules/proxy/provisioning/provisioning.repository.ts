@@ -164,6 +164,21 @@ export class ProvisioningRepository {
     };
   }
 
+  /**
+   * Marks a provider API key as revoked because the provider reported the
+   * account/key itself is unusable (banned, suspended, or otherwise
+   * unauthorized). Only transitions active keys so a concurrent manual
+   * revoke or an already-disabled key is left untouched.
+   */
+  async disableProviderApiKey(apiKeyId: number, reason: string) {
+    const result = await this.db.client.from('provider_api_keys').update({
+      status: 'revoked',
+      revoked_at: new Date().toISOString(),
+      revoked_reason: reason.slice(0, 500),
+    }).eq('id', apiKeyId).eq('status', 'active');
+    if (result.error) throw result.error;
+  }
+
   async providerForTermination(providerId: number, apiKeyId: number) {
     const [providerResult, keyResult] = await Promise.all([
       this.db.client.from('proxy_providers').select('id,code,metadata').eq('id', providerId).single(),

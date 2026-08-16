@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } fro
 import { ConfigService } from '@nestjs/config';
 import os from 'node:os';
 import type { ProviderInstance } from '../provider/compute-provider';
+import { ProviderAccountDisabledError } from '../provider/compute-provider';
 import { ProviderRegistry } from '../provider/provider.registry';
 import { ProxyCredentialService } from '../proxy-credential.service';
 import { ProxySecretService } from '../proxy-secret.service';
@@ -152,6 +153,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
   private async process(job: ProvisioningJob) {
     let instance: ProviderInstance | null = null;
     let providerId: number | null = null;
+    let apiKeyId: number | null = null;
     let providerApiKey = '';
     let providerDriver = '';
     const lockSeconds = this.provisioningLockSeconds();
@@ -169,6 +171,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const context = await this.repository.context(job.node_id, job.action);
       const capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, replacing ? 'replacement' : 'customer');
       providerId = capacity.providerId;
+      apiKeyId = capacity.apiKeyId;
       const firstPort = Number(this.config.get('GOST_TUNNEL_PORT_MIN') || 30000);
       const lastPort = Number(this.config.get('GOST_TUNNEL_PORT_MAX') || 39999);
       const publicHost = String(this.config.get('GOST_PUBLIC_HOST') || this.required('GOST_MASTER_HOST'));
@@ -291,7 +294,17 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         if (providerId) await this.repository.markInstanceStopped(providerId, instance.externalInstanceId, terminated ? 'stopped' : 'error').catch(() => undefined);
       }
       if (providerDriver) await this.providers.get(providerDriver).releaseNodeResources?.(job.node_id).catch(() => undefined);
-      const delaySeconds = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
+      const accountDisabled = error instanceof ProviderAccountDisabledError;
+      if (accountDisabled && apiKeyId) {
+        await this.repository.disableProviderApiKey(apiKeyId, message).catch(disableError =>
+          this.logger.error(`Could not disable provider API key ${apiKeyId}: ${disableError instanceof Error ? disableError.message : disableError}`)
+        );
+        this.logger.warn(`Disabled ${providerDriver || 'provider'} API key ${apiKeyId} (banned/suspended): ${message}`);
+      }
+      // A banned/suspended API key was just disabled, so the next attempt
+      // can pick another active key immediately instead of waiting out the
+      // normal exponential backoff.
+      const delaySeconds = accountDisabled ? 5 : Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
       const recordFailure = job.action === 'terminate'
         ? this.repository.failTermination(job.id, this.workerId, message, delaySeconds)
         : job.action === 'replace'
@@ -336,10 +349,24 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         if (!this.providers.supports(driver)) continue;
         const apiKey = this.secrets.decryptProviderKey(target);
         const provider = this.providers.get(driver);
-        const [owned, tracked] = await Promise.all([
-          provider.listOwnedInstances(apiKey),
-          this.repository.trackedInstances(Number(target.provider_id), Number(target.id)),
-        ]);
+        let owned: ProviderInstance[];
+        let tracked: Awaited<ReturnType<typeof this.repository.trackedInstances>>;
+        try {
+          [owned, tracked] = await Promise.all([
+            provider.listOwnedInstances(apiKey),
+            this.repository.trackedInstances(Number(target.provider_id), Number(target.id)),
+          ]);
+        } catch (error) {
+          if (error instanceof ProviderAccountDisabledError) {
+            await this.repository.disableProviderApiKey(Number(target.id), error.message).catch(disableError =>
+              this.logger.error(`Could not disable provider API key ${target.id}: ${disableError instanceof Error ? disableError.message : disableError}`)
+            );
+            this.logger.warn(`Disabled ${driver} API key ${target.id} (banned/suspended): ${error.message}`);
+          } else {
+            this.logger.error(`Unable to list ${driver} instances for key ${target.id}: ${error instanceof Error ? error.message : error}`);
+          }
+          continue;
+        }
         const ownedIds = new Set(owned.map(instance => instance.externalInstanceId));
         const trackedIds = new Set(tracked.map(instance => instance.external_instance_id));
 

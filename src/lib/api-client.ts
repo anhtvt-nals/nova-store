@@ -234,6 +234,7 @@ export interface ProviderApiKey {
   maskedKey: string;
   status: 'active' | 'revoked';
   createdAt: string;
+  revokedReason?: string | null;
 }
 export interface ProxyPriceSetting {
   id: number;

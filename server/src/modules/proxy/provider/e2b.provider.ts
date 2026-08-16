@@ -1,7 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { Sandbox } from 'e2b';
+import { AuthenticationError, Sandbox } from 'e2b';
 import { GostCommandBuilder } from '../gost/gost-command.builder';
-import type { ComputeProvider, ProviderInstance, ProvisionNodeInput } from './compute-provider';
+import { ProviderAccountDisabledError, type ComputeProvider, type ProviderInstance, type ProvisionNodeInput } from './compute-provider';
+
+// E2B returns AuthenticationError for a 401 (invalid/revoked API key). A
+// banned or suspended team also surfaces as an unauthorized/forbidden
+// response, so treat these signals as "this key can no longer be used".
+const BANNED_MESSAGE_PATTERN = /banned|suspended|blocked|account.*(disabled|deactivated)/i;
+
+function toProviderError(error: unknown): Error {
+  if (error instanceof AuthenticationError) return new ProviderAccountDisabledError(error.message);
+  if (error instanceof Error && BANNED_MESSAGE_PATTERN.test(error.message)) return new ProviderAccountDisabledError(error.message);
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 @Injectable()
 export class E2bProvider implements ComputeProvider {
@@ -26,7 +37,12 @@ export class E2bProvider implements ComputeProvider {
       secure: false,
       metadata: { ...input.metadata, managedBy: 'proxy-node', nodeId: String(input.nodeId), orderId: String(input.orderId) },
     };
-    const sandbox = input.template ? await Sandbox.create(input.template, options) : await Sandbox.create(options);
+    let sandbox: Sandbox;
+    try {
+      sandbox = input.template ? await Sandbox.create(input.template, options) : await Sandbox.create(options);
+    } catch (error) {
+      throw toProviderError(error);
+    }
     try {
       await sandbox.commands.run(this.gost.install(input.gost.version), { timeoutMs: 30000 });
       const local = this.gost.localSocks(input);
@@ -43,32 +59,45 @@ export class E2bProvider implements ComputeProvider {
       };
     } catch (error) {
       await sandbox.kill().catch(() => undefined);
-      throw error;
+      throw toProviderError(error);
     }
   }
 
   async getInstance(externalInstanceId: string, providerApiKey: string): Promise<ProviderInstance> {
-    const info = await Sandbox.getInfo(externalInstanceId, { apiKey: providerApiKey });
-    return { externalInstanceId, status: info.state === 'running' ? 'running' : 'stopped', startedAt: info.startedAt, expiresAt: info.endAt, metadata: info.metadata };
+    try {
+      const info = await Sandbox.getInfo(externalInstanceId, { apiKey: providerApiKey });
+      return { externalInstanceId, status: info.state === 'running' ? 'running' : 'stopped', startedAt: info.startedAt, expiresAt: info.endAt, metadata: info.metadata };
+    } catch (error) {
+      throw toProviderError(error);
+    }
   }
 
   async terminateInstance(externalInstanceId: string, providerApiKey: string) {
-    await Sandbox.kill(externalInstanceId, { apiKey: providerApiKey });
+    try {
+      await Sandbox.kill(externalInstanceId, { apiKey: providerApiKey });
+    } catch (error) {
+      throw toProviderError(error);
+    }
   }
 
   async listOwnedInstances(providerApiKey: string): Promise<ProviderInstance[]> {
     const paginator = Sandbox.list({ apiKey: providerApiKey, query: { metadata: { managedBy: 'proxy-node' } }, limit: 100 });
     const instances: ProviderInstance[] = [];
-    while (paginator.hasNext) {
-      const page = await paginator.nextItems();
-      instances.push(...page.map(info => ({
-        externalInstanceId: info.sandboxId,
-        status: info.state === 'running' ? 'running' as const : 'stopped' as const,
-        startedAt: info.startedAt,
-        expiresAt: info.endAt,
-        metadata: info.metadata,
-      })));
+    try {
+      while (paginator.hasNext) {
+        const page = await paginator.nextItems();
+        instances.push(...page.map(info => ({
+          externalInstanceId: info.sandboxId,
+          status: info.state === 'running' ? 'running' as const : 'stopped' as const,
+          startedAt: info.startedAt,
+          expiresAt: info.endAt,
+          metadata: info.metadata,
+        })));
+      }
+      return instances;
+    } catch (error) {
+      throw toProviderError(error);
     }
-    return instances;
   }
 }
+

@@ -262,10 +262,10 @@ export class AdminService {
   }
 
   async providerApiKeys() {
-    const result = await this.db.client.from('provider_api_keys').select('id,provider_id,label,key_prefix,key_last4,status,created_at,proxy_providers(name)').order('created_at', { ascending: false });
+    const result = await this.db.client.from('provider_api_keys').select('id,provider_id,label,key_prefix,key_last4,status,created_at,revoked_reason,proxy_providers(name)').order('created_at', { ascending: false });
     return this.db.unwrap(result, 'Unable to load provider API keys').map((row: any) => {
       const provider = Array.isArray(row.proxy_providers) ? row.proxy_providers[0] : row.proxy_providers;
-      return { id: row.id, providerId: row.provider_id, providerName: provider?.name || 'Unknown', label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at };
+      return { id: row.id, providerId: row.provider_id, providerName: provider?.name || 'Unknown', label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at, revokedReason: row.revoked_reason || null };
     });
   }
 
@@ -275,7 +275,6 @@ export class AdminService {
     const storedSecret = dto.secret.trim();
     const blaxelWorkspace = provider.data?.code === 'blaxel' ? this.blaxelWorkspace(storedSecret) : null;
     const githubOwner = provider.data?.code === 'github' ? this.githubOwner(storedSecret) : null;
-    if (githubOwner) await this.ensureGithubSandboxRepository(githubOwner, storedSecret.slice(storedSecret.indexOf('|') + 1));
     const encrypted = this.encryptProviderSecret(storedSecret);
     const result = await this.db.client.from('provider_api_keys').insert({
       provider_id: providerId,
@@ -285,6 +284,17 @@ export class AdminService {
       ...encrypted,
     }).select('id,provider_id,label,key_prefix,key_last4,status,created_at').single();
     const row = this.db.unwrap(result, 'Unable to save provider API key');
+    if (githubOwner) {
+      const repository = `nodenesia-gost-${row.id}`;
+      try {
+        await this.ensureGithubSandboxRepository(githubOwner, storedSecret.slice(storedSecret.indexOf('|') + 1), repository);
+        const update = await this.db.client.from('provider_api_keys').update({ github_repository: repository }).eq('id', row.id);
+        if (update.error) throw update.error;
+      } catch (error) {
+        await this.db.client.from('provider_api_keys').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', row.id);
+        throw error;
+      }
+    }
     return { id: row.id, providerId: row.provider_id, label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at };
   }
 
@@ -314,30 +324,22 @@ export class AdminService {
     return workspace;
   }
 
-  private async ensureGithubSandboxRepository(owner: string, apiKey: string) {
-    const templateOwner = String(this.config.get('GITHUB_TEMPLATE_OWNER') || '').trim();
-    if (!/^[A-Za-z0-9-]+$/.test(templateOwner)) {
-      throw new BadRequestException('GITHUB_TEMPLATE_OWNER must be configured before adding a GitHub provider key');
-    }
-
+  private async ensureGithubSandboxRepository(owner: string, apiKey: string, repository: string) {
+    const controlPlaneUrl = String(this.config.get('GITHUB_CONTROL_PLANE_URL') || '').replace(/\/$/, '');
+    if (!/^https:\/\//.test(controlPlaneUrl)) throw new BadRequestException('GITHUB_CONTROL_PLANE_URL must be an HTTPS URL before adding a GitHub provider key');
     const user = await this.githubRequest<{ login?: string }>('/user', apiKey, 'GET', [200]);
     if (user.login?.toLowerCase() !== owner.toLowerCase()) {
       throw new BadRequestException('The owner in the GitHub provider secret must match the API key owner');
     }
 
-    const repository = 'nodenesia-gost-sandbox';
     const existing = await this.githubRequest(`/repos/${owner}/${repository}`, apiKey, 'GET', [200, 404]);
     if (existing.status !== 200) {
-      await this.githubRequest(
-        `/repos/${templateOwner}/nodenesia-gost-template/generate`,
-        apiKey,
-        'POST',
-        [201],
-        { owner, name: repository, description: 'Public short-lived GOST v3 test runner for Nodenesia', private: false, include_all_branches: false },
-      );
+      await this.githubRequest('/user/repos', apiKey, 'POST', [201], { name: repository, description: 'Public short-lived GOST v3 runner for Nodenesia', private: false, auto_init: false, has_issues: false, has_projects: false, has_wiki: false });
+      await this.githubRequest(`/repos/${owner}/${repository}/contents/.github/workflows/gost-sandbox.yml`, apiKey, 'PUT', [201], {
+        message: 'Add Nodenesia GOST runner workflow',
+        content: Buffer.from(this.githubGostWorkflow()).toString('base64'),
+      });
     }
-    const controlPlaneUrl = String(this.config.get('GITHUB_CONTROL_PLANE_URL') || '').replace(/\/$/, '');
-    if (!/^https:\/\//.test(controlPlaneUrl)) throw new BadRequestException('GITHUB_CONTROL_PLANE_URL must be an HTTPS URL before adding a GitHub provider key');
     const variablePath = `/repos/${owner}/${repository}/actions/variables/NODENESIA_CONTROL_PLANE_URL`;
     const updated = await this.githubRequest(variablePath, apiKey, 'PATCH', [204, 404], { name: 'NODENESIA_CONTROL_PLANE_URL', value: controlPlaneUrl });
     if (updated.status === 404) await this.githubRequest(`/repos/${owner}/${repository}/actions/variables`, apiKey, 'POST', [201], { name: 'NODENESIA_CONTROL_PLANE_URL', value: controlPlaneUrl });
@@ -346,7 +348,7 @@ export class AdminService {
   private async githubRequest<T extends Record<string, unknown> = Record<string, unknown>>(
     path: string,
     apiKey: string,
-    method: 'GET' | 'POST' | 'PATCH',
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT',
     expectedStatuses: number[],
     body?: Record<string, unknown>,
   ): Promise<T & { status: number }> {
@@ -363,9 +365,56 @@ export class AdminService {
     const payload = await response.json().catch(() => ({})) as T;
     if (expectedStatuses.includes(response.status)) return { ...payload, status: response.status };
     if (response.status === 401 || response.status === 403) throw new BadRequestException('GitHub API key is invalid or lacks repository access');
-    if (response.status === 404) throw new BadRequestException('Nodenesia GitHub template repository was not found or is not accessible to this API key');
-    if (response.status === 422) throw new BadRequestException('GitHub could not create the Nodenesia sandbox repository; verify the account and template access');
+    if (response.status === 404) throw new BadRequestException('GitHub repository setup resource was not found or is not accessible to this API key');
+    if (response.status === 422) throw new BadRequestException('GitHub could not create the Nodenesia sandbox repository; verify the account permissions and repository name');
     throw new BadRequestException(`GitHub repository setup failed (${response.status})`);
+  }
+
+  private githubGostWorkflow() {
+    // Ordinary quoted strings deliberately keep shell `${...}` expressions literal.
+    return [
+      'name: Nodenesia GOST sandbox',
+      'on:',
+      '  workflow_dispatch:',
+      '    inputs:',
+      '      task_id: { required: true, type: string }',
+      'permissions:',
+      '  contents: read',
+      '  id-token: write',
+      'jobs:',
+      '  run-gost:',
+      '    runs-on: ubuntu-latest',
+      '    timeout-minutes: 60',
+      '    steps:',
+      '      - shell: bash',
+      '        env:',
+      '          TASK_ID: ${{ inputs.task_id }}',
+      '          CONTROL_PLANE_URL: ${{ vars.NODENESIA_CONTROL_PLANE_URL }}',
+      '          OIDC_AUDIENCE: nodenesia-gost-control-plane',
+      '        run: |',
+      '          set -euo pipefail',
+      '          response="$(curl --fail --silent --show-error -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}")"',
+      "          oidc_token=\"$(jq -er '.value' <<<\"$response\")\"",
+      "          curl --fail --silent --show-error --retry 3 --retry-all-errors -H \"Authorization: Bearer $oidc_token\" -H 'Content-Type: application/json' --data \"{\\\"runId\\\":${GITHUB_RUN_ID}}\" \"${CONTROL_PLANE_URL}/tasks/${TASK_ID}/config\" > \"$RUNNER_TEMP/nodenesia-gost.json\"",
+      '          config="$RUNNER_TEMP/nodenesia-gost.json"',
+      '          get() { jq -er "$1" "$config"; }',
+      "          enc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=\"\"))' \"$1\"; }",
+      "          version=\"$(get '.gost.version')\"; local_port=\"$(get '.gost.localPort')\"; bind_port=\"$(get '.gost.bindPort')\"",
+      "          master_host=\"$(get '.gost.masterHost')\"; rendezvous_port=\"$(get '.gost.rendezvousPort')\"; transport=\"$(get '.gost.tunnelTransport')\"",
+      "          ws_path=\"$(jq -r '.gost.wsPath // \"/ws\"' \"$config\")\"; tls_server_name=\"$(jq -r '.gost.tlsServerName // empty' \"$config\")\"",
+      "          socks_user=\"$(enc \"$(get '.gost.socksUsername')\")\"; socks_pass=\"$(enc \"$(get '.gost.socksPassword')\")\"",
+      "          tunnel_user=\"$(enc \"$(get '.gost.tunnelUsername')\")\"; tunnel_pass=\"$(enc \"$(get '.gost.tunnelPassword')\")\"",
+      '          scheme=socks5; [[ "$transport" == tcp ]] || scheme="socks5+$transport"',
+      '          query=""; [[ "$transport" == tcp ]] || query="?path=$(enc "$ws_path")"',
+      '          [[ "$transport" != wss ]] || query+="&secure=true&serverName=$(enc "${tls_server_name:-$master_host}")"',
+      '          curl -fsSL -o /tmp/gost.tgz "https://github.com/go-gost/gost/releases/download/v$version/gost_${version}_linux_amd64.tar.gz"',
+      '          tar -xzf /tmp/gost.tgz -C /tmp gost; chmod +x /tmp/gost',
+      "          trap 'jobs -pr | xargs -r kill || true; rm -f \"$config\"' EXIT INT TERM",
+      '          /tmp/gost -L="socks5://$socks_user:$socks_pass@127.0.0.1:$local_port" >/tmp/gost-socks.log 2>&1 &',
+      '          /tmp/gost -L="rtcp://:$bind_port/127.0.0.1:$local_port" -F="$scheme://$tunnel_user:$tunnel_pass@$master_host:$rendezvous_port$query" >/tmp/gost-tunnel.log 2>&1 &',
+      '          sleep 3180',
+      '',
+    ].join('\n');
   }
 
   async revokeProviderApiKey(id: number) {
