@@ -75,6 +75,6 @@ try {
   if (!await socksAuth()) throw new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`);
   const proxy = `socks5h://${socksUser}:${socksPass}@${publicHost}:${TEST_PORT}`;
   const { stdout } = await execFileAsync('curl', ['--silent', '--show-error', '--fail', '--max-time', '20', '--proxy', proxy, 'https://api.ipify.org']);
-  process.stdout.write(`[github-test] SOCKS5 ready; proxy egress IP: ${String(stdout).trim()}\n[github-test] Test completed; cleaning all temporary resources…\n`);
-  await cleanup(0);
+  process.stdout.write(`[github-test] SOCKS5 ready: ${proxy}\n[github-test] Proxy egress IP: ${String(stdout).trim()}\n[github-test] Press Ctrl+C to cancel the workflow and delete the temporary repository.\n`);
+  await new Promise(() => { setInterval(() => {}, 60_000); });
 } catch (error) { process.stderr.write(`[github-test] ${error.message || error}\n`); await cleanup(1); }
