@@ -145,7 +145,10 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
         const nodes = order.static_residential_nodes || [];
         if (order.status === 'active' && new Date(order.expires_at) <= new Date()) { await this.stopOrder(order.id, nodes, 'expired'); continue; }
         if (order.status !== 'active') continue;
-        if (nodes.some((node: any) => !usage.has(node.service_name))) {
+        // A service emits transfer counters only after it carries traffic, so
+        // metrics cannot be used as a listener-health probe. Recreating an
+        // otherwise healthy service resets its Prometheus counter to zero.
+        if (!(await this.gost.hasServices(nodes.map((node: any) => node.service_name)))) {
           const lastAttempt = this.repairAttemptAt.get(order.id) || 0;
           if (Date.now() - lastAttempt >= 10_000) {
             this.repairAttemptAt.set(order.id, Date.now());

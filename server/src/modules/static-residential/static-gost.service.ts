@@ -108,6 +108,18 @@ export class StaticGostService {
     return totals;
   }
 
+  async hasServices(serviceNames: string[]) {
+    for (const serviceName of serviceNames) {
+      try {
+        await this.request(`/services/${serviceName}`);
+      } catch (error: any) {
+        if (error?.status === 404 || /\bnot found\b/i.test(String(error?.message))) return false;
+        throw error;
+      }
+    }
+    return true;
+  }
+
   private chainName(nodeId: number) { return `static-residential-node-${nodeId}`; }
   private address(host: string, port: number) { return isIP(host) === 6 ? `[${host}]:${port}` : `${host}:${port}`; }
 
