@@ -23,6 +23,7 @@
     "deploy:redeploy": "bash scripts/redeploy-production.sh"
   },
   "dependencies": {
+    "@beamcloud/beam-js": "^1.0.0-rc.33",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",

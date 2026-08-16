@@ -41,6 +41,9 @@ let cleaning = false;
 let testVpcName = '';
 let testGatewayName = '';
 let testEgressIpName = '';
+let testVpcCreated = false;
+let testGatewayCreated = false;
+let testEgressIpCreated = false;
 const keepOnFailure = process.env.BLAXEL_TEST_KEEP_ON_FAILURE === 'true';
 
 function fail(message) { throw new Error(message); }
@@ -132,24 +135,30 @@ async function waitForEgressDeployment(path, label) {
 }
 
 async function createTemporaryDedicatedEgress(suffix) {
-  testVpcName = `nodenesia-gost-test-${suffix}`;
-  testGatewayName = `egress-${suffix}`;
-  testEgressIpName = `ip-${suffix}`;
+  const vpcName = `nodenesia-gost-test-${suffix}`;
+  const gatewayName = `egress-${suffix}`;
+  const egressIpName = `ip-${suffix}`;
   process.stdout.write(`[blaxel-test] Creating temporary dedicated egress in ${region}…\n`);
   await blaxel('POST', '/vpcs', {
-    metadata: { name: testVpcName, displayName: 'Nodenesia temporary GOST test VPC', labels: { managedBy: 'nodenesia-gost-test' } },
+    metadata: { name: vpcName, displayName: 'Nodenesia temporary GOST test VPC', labels: { managedBy: 'nodenesia-gost-test' } },
     spec: {},
   });
+  testVpcName = vpcName;
+  testVpcCreated = true;
   await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}`, `VPC ${testVpcName}`);
   await blaxel('POST', `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways`, {
-    metadata: { name: testGatewayName, displayName: 'Nodenesia temporary GOST test egress gateway' },
+    metadata: { name: gatewayName, displayName: 'Nodenesia temporary GOST test egress gateway' },
     spec: { region },
   });
+  testGatewayName = gatewayName;
+  testGatewayCreated = true;
   await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}`, `egress gateway ${testGatewayName}`);
   await blaxel('POST', `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips`, {
-    metadata: { name: testEgressIpName, displayName: 'Nodenesia temporary GOST test egress IP' },
+    metadata: { name: egressIpName, displayName: 'Nodenesia temporary GOST test egress IP' },
     spec: { ipFamily: 'IPv4' },
   });
+  testEgressIpName = egressIpName;
+  testEgressIpCreated = true;
   await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips/${encodeURIComponent(testEgressIpName)}`, `egress IP ${testEgressIpName}`);
   return testGatewayName;
 }
@@ -255,9 +264,9 @@ async function cleanup(exitCode = 0) {
   // Delete in dependency order. These are created only with
   // BLAXEL_TEST_DEDICATED_EGRESS=true, never production gateway resources.
   for (const path of [
-    testEgressIpName && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips/${encodeURIComponent(testEgressIpName)}`,
-    testGatewayName && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}`,
-    testVpcName && `/vpcs/${encodeURIComponent(testVpcName)}`,
+    testEgressIpCreated && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips/${encodeURIComponent(testEgressIpName)}`,
+    testGatewayCreated && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}`,
+    testVpcCreated && `/vpcs/${encodeURIComponent(testVpcName)}`,
   ]) {
     if (!path) continue;
     try { await blaxel('DELETE', path); }
