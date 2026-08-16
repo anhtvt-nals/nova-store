@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, ArrowRight, Check, ChevronRight, CircleAlert, Copy,
-  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Plus, RefreshCw,
+  Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy,
+  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, Power, RefreshCw,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
@@ -21,7 +21,7 @@ import type {
 } from '@/lib/api-client';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
@@ -358,8 +358,29 @@ function AdminDashboard() {
 <SectionTitle eyebrow="developer access" title="Sandbox API keys" body="Issue scoped-looking credentials for testing and integration." /><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h3 className="font-extrabold text-[#142037]">Create a key</h3><p className="mt-2 text-sm text-slate-500">The full secret is shown once by the API.</p>{latestKey && <div className="mt-4 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] p-3"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#13716e]">Copy this key now</p><div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 break-all text-xs text-[#142037]">{latestKey}</code><button onClick={() => copyText(latestKey)} className="rounded-lg bg-white p-2 text-[#13716e]" aria-label="Copy API key"><Copy size={14} /></button></div></div>}<input value={keyLabel} onChange={e => setKeyLabel(e.target.value)} placeholder="e.g. QA crawler" className="mt-5 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]" data-testid="input-key-label" /><Button className="mt-3 w-full" disabled={createKey.isPending} onClick={submitKey}><KeyRound size={15} /> Create key</Button></div><KeysTable keys={keys.data || []} loading={keys.isLoading} onDelete={id => { if (window.confirm('Revoke this sandbox key?')) deleteKey.mutate({ id }, { onSuccess: refreshKeys }); }} /></div></div><div id="orders" className="mt-10"><SectionTitle eyebrow="settlement" title="Order approval queue" body="Review manual payments before provisioning access." /><AdminOrdersTable orders={adminOrders.data || []} loading={adminOrders.isLoading} onStatus={(id, status) => updateOrder.mutate({ id, data: { status } }, { onSuccess: refreshOrders })} /></div></div></div></AppShell>;
 }
 
+function IconActionButton({ label, onClick, disabled, tone = 'default', testId, children }: { label: string; onClick: () => void; disabled?: boolean; tone?: 'default' | 'danger'; testId?: string; children: ReactNode }) {
+  return <Tooltip>
+    <TooltipTrigger asChild>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        data-testid={testId}
+        className={cx(
+          'grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#dbe7e9] text-slate-500 transition hover:bg-slate-100 hover:text-[#142037] disabled:cursor-not-allowed disabled:opacity-50',
+          tone === 'danger' && 'hover:border-red-200 hover:bg-red-50 hover:text-red-600',
+        )}
+      >
+        {children}
+      </button>
+    </TooltipTrigger>
+    <TooltipContent>{label}</TooltipContent>
+  </Tooltip>;
+}
+
 function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number }) {
-  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{users.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></div></div><div className="flex items-center gap-3"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><button onClick={() => onResetPassword(user)} disabled={resettingId === user.id} className="text-xs font-bold text-[#13716e] disabled:opacity-50" data-testid={`button-reset-password-${user.id}`}>{resettingId === user.id ? 'Resetting…' : 'Reset password'}</button><button onClick={() => onEdit(user)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#142037]" data-testid={`button-edit-user-${user.id}`}><MoreHorizontal size={17} /></button><button onClick={() => onToggle(user)} className="text-xs font-bold text-[#13716e]" data-testid={`button-toggle-user-${user.id}`}>{user.status === 'active' ? 'Suspend' : 'Activate'}</button><button onClick={() => onDelete(user.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" data-testid={`button-delete-user-${user.id}`}><Trash2 size={15} /></button></div></div>)}</div></State></div>;
+  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{users.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></div></div><div className="flex items-center gap-2"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><IconActionButton label="Edit user" onClick={() => onEdit(user)} testId={`button-edit-user-${user.id}`}><Pencil size={15} /></IconActionButton><IconActionButton label="Reset password" onClick={() => onResetPassword(user)} disabled={resettingId === user.id} testId={`button-reset-password-${user.id}`}><KeyRound size={15} /></IconActionButton><IconActionButton label={user.status === 'active' ? 'Suspend user' : 'Activate user'} onClick={() => onToggle(user)} testId={`button-toggle-user-${user.id}`}>{user.status === 'active' ? <Ban size={15} /> : <Power size={15} />}</IconActionButton><IconActionButton label="Delete user" tone="danger" onClick={() => onDelete(user.id)} testId={`button-delete-user-${user.id}`}><Trash2 size={15} /></IconActionButton></div></div>)}</div></State></div>;
 }
 
 function GeneratedPasswordCard({ email, password, onDismiss }: { email: string; password: string; onDismiss: () => void }) {
