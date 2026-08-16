@@ -13,6 +13,7 @@ const apiBaseUrl = String(process.env.BLAXEL_API_BASE_URL || 'https://api.blaxel
 const apiVersion = String(process.env.BLAXEL_API_VERSION || '2026-04-16');
 const image = String(process.env.BLAXEL_IMAGE || 'blaxel/base-image:latest');
 const region = String(process.env.BLAXEL_REGION || 'us-pdx-1');
+const enableNetworkProxy = process.env.BLAXEL_NETWORK_PROXY !== 'false';
 const memory = boundedInteger(process.env.BLAXEL_SANDBOX_MEMORY_MB, 1024, 512, 65536);
 const readyTimeoutMs = boundedInteger(process.env.BLAXEL_READY_TIMEOUT_MS, 180000, 30000, 600000);
 const gostVersion = requiredVersion('GOST_VERSION', process.env.GOST_VERSION || '3.2.6');
@@ -59,11 +60,6 @@ function parseKey(value) {
   }
   return { workspace, apiKey };
 }
-function nodeEvalCommand(source) {
-  const encoded = Buffer.from(source).toString('base64');
-  return `node -e "eval(Buffer.from('${encoded}', 'base64').toString())"`;
-}
-
 async function blaxel(method, path, body) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,
@@ -177,27 +173,24 @@ try {
   process.stdout.write(`[blaxel-test] Creating sandbox ${sandboxName} in ${workspace}/${region}…\n`);
   await blaxel('POST', '/sandboxes', {
     metadata: { name: sandboxName, displayName: 'Nodenesia temporary GOST test', labels: { managedBy: 'nodenesia-gost-test', tunnelPort: String(TEST_PORT) } },
-    spec: { enabled: true, region, runtime: { image, memory, ttl: '1h' } },
+    spec: {
+      enabled: true,
+      region,
+      // Blaxel sandboxes have no direct HTTPS egress in this workspace. This
+      // enables the platform HTTP(S) proxy and its injected proxy variables.
+      ...(enableNetworkProxy ? { network: { proxy: { routing: [{ destinations: '["*"]' }] } } } : {}),
+      runtime: { image, memory, ttl: '1h' },
+    },
   });
   const sandbox = await waitForDeployment(sandboxName);
   sandboxUrl = sandbox.metadata.url;
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
   await exec(sandboxUrl, 'install-gost', install, {}, true, 90);
-  const egress = await exec(sandboxUrl, 'check-egress-ip', 'curl -4 -fsS --connect-timeout 5 https://api.ipify.org', {}, true, 15);
+  const egress = await exec(sandboxUrl, 'check-egress-ip', 'curl -4 -fsS --connect-timeout 5 https://api.ipify.org || { status=$?; echo "UNAVAILABLE curl-exit-${status}"; exit 0; }', {}, true, 15);
   const egressOutput = [egress?.logs, egress?.stdout].filter(Boolean).join('\n').trim();
-  if (egressOutput) process.stdout.write(`[blaxel-test] Sandbox egress IP: ${egressOutput}\n`);
-  const rendezvousCheck = [
-    "const net=require('net');",
-    'const host=process.env.TEST_HOST;',
-    'const port=Number(process.env.TEST_PORT);',
-    'const started=Date.now();',
-    'const socket=net.createConnection({host,port});',
-    'socket.setTimeout(5000);',
-    "socket.on('connect',()=>{console.log('CONNECTED '+host+':'+port+' local='+socket.localAddress+' in '+(Date.now()-started)+'ms');process.exit(0)});",
-    "socket.on('timeout',()=>{console.error('TIMEOUT '+host+':'+port+' after '+(Date.now()-started)+'ms');process.exit(1)});",
-    "socket.on('error',error=>{console.error('ERROR '+(error.code||'UNKNOWN')+' '+error.message);process.exit(1)});",
-  ].join('');
-  await exec(sandboxUrl, 'check-rendezvous', nodeEvalCommand(rendezvousCheck), { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
+  if (egressOutput) process.stdout.write(`[blaxel-test] Sandbox egress diagnostic: ${egressOutput}\n`);
+  const rendezvousCheck = 'timeout 5 bash -c \'exec 3<>/dev/tcp/"$TEST_HOST"/"$TEST_PORT"\' && echo "CONNECTED $TEST_HOST:$TEST_PORT" || { status=$?; echo "TCP_CHECK_FAILED status=$status $TEST_HOST:$TEST_PORT"; exit $status; }';
+  await exec(sandboxUrl, 'check-rendezvous', rendezvousCheck, { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
   const query = gostQuery();
   await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
