@@ -2,7 +2,9 @@
 // One-off Beam sandbox + GOST test. Ctrl+C always terminates the sandbox.
 // Usage: BEAM_TEST_KEY='workspace-id|token' npm run test:beam-gost
 import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import net from 'node:net';
+import { promisify } from 'node:util';
 import { beamOpts, Image, Sandbox } from '@beamcloud/beam-js';
 
 try { process.loadEnvFile('.env'); } catch {}
@@ -27,6 +29,7 @@ if (!publicHost || !masterHost || !user || !pass) throw new Error('GOST_PUBLIC_H
 
 const alpha = length => Array.from({ length }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[randomBytes(1)[0] % 62]).join('');
 const socksUser = alpha(10), socksPass = alpha(10);
+const execFileAsync = promisify(execFile);
 let instance;
 let cleaning = false;
 const name = `nodenesia-gost-test-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
@@ -53,11 +56,21 @@ function socksAuth() {
   });
 }
 async function cleanup(code = 0) { if (cleaning) return; cleaning = true; if (instance) { process.stdout.write('\n[beam-test] Terminating sandbox…\n'); await instance.terminate().catch(error => { process.stderr.write(`[beam-test] Cleanup failed: ${error.message}\n`); code = 1; }); } process.exit(code); }
+async function reportProxyEgress() {
+  const proxy = `socks5h://${encodeURIComponent(socksUser)}:${encodeURIComponent(socksPass)}@${publicHost}:${TEST_PORT}`;
+  try {
+    const { stdout } = await execFileAsync('curl', ['--silent', '--show-error', '--fail', '--max-time', '20', '--proxy', proxy, 'https://api.ipify.org']);
+    const address = String(stdout).trim();
+    process.stdout.write(net.isIP(address) ? `[beam-test] Proxy egress IP (via SOCKS5): ${address}\n` : '[beam-test] Proxy egress IP: unavailable (unexpected response through SOCKS5)\n');
+  } catch {
+    process.stdout.write('[beam-test] Proxy egress IP: unavailable (curl through SOCKS5 failed)\n');
+  }
+}
 process.once('SIGINT', () => void cleanup()); process.once('SIGTERM', () => void cleanup());
 
 try {
   process.stdout.write(`[beam-test] Creating sandbox ${name} in workspace ${workspaceId}…\n`);
-  instance = await new Sandbox({ name, cpu: 1, memory: 1024, keepWarmSeconds: 3600, image: Image.fromRegistry(process.env.BEAM_IMAGE || 'ubuntu:22.04') }).create();
+  instance = await new Sandbox({ name, cpu: 0.5, memory: 512, keepWarmSeconds: 3600, image: Image.fromRegistry(process.env.BEAM_IMAGE || 'ubuntu:22.04') }).create();
   const install = `apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar && curl -fsSL -o /tmp/gost.tar.gz https://github.com/go-gost/gost/releases/download/v${version}/gost_${version}_linux_amd64.tar.gz && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost`;
   await run(install);
   await run(`/tmp/gost -L='socks5://${encodeURIComponent(socksUser)}:${encodeURIComponent(socksPass)}@127.0.0.1:1080' >/tmp/gost-socks.log 2>&1 &`, false);
@@ -66,6 +79,7 @@ try {
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) { if (await socksAuth()) break; await wait(1000); }
   if (!await socksAuth()) throw new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`);
+  await reportProxyEgress();
   process.stdout.write(`[beam-test] SOCKS5 ready: socks5://${socksUser}:${socksPass}@${publicHost}:${TEST_PORT}\n[beam-test] Press Ctrl+C to clean the sandbox.\n`);
   await new Promise(() => { setInterval(() => {}, 60000); });
 } catch (error) { process.stderr.write(`[beam-test] ${error instanceof Error ? error.message : error}\n`); await cleanup(1); }
