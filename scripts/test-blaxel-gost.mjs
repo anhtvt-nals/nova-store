@@ -45,6 +45,7 @@ let testVpcCreated = false;
 let testGatewayCreated = false;
 let testEgressIpCreated = false;
 const keepOnFailure = process.env.BLAXEL_TEST_KEEP_ON_FAILURE === 'true';
+const keepAlive = process.env.BLAXEL_TEST_KEEP_ALIVE === 'true';
 
 function fail(message) { throw new Error(message); }
 function required(name) {
@@ -326,9 +327,13 @@ try {
   }, false);
   await waitForProxy();
   await reportProxyEgress();
-  process.stdout.write(`\n[blaxel-test] SOCKS5 ready: socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}\n[blaxel-test] Press Ctrl+C to delete the sandbox and release port ${TEST_PORT}.\n`);
-  // Keep Node's event loop alive without an unresolved top-level await warning.
-  await new Promise(() => { setInterval(() => {}, 60_000); });
+  process.stdout.write(`\n[blaxel-test] SOCKS5 ready: socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}\n`);
+  if (keepAlive) {
+    process.stdout.write(`[blaxel-test] Keeping resources alive; press Ctrl+C to clean them.\n`);
+    await new Promise(() => { setInterval(() => {}, 60_000); });
+  }
+  process.stdout.write('[blaxel-test] Test completed; cleaning temporary resources…\n');
+  await cleanup(0);
 } catch (error) {
   process.stderr.write(`[blaxel-test] ${error instanceof Error ? error.message : error}\n`);
   await diagnose();

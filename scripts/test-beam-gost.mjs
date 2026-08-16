@@ -25,6 +25,7 @@ const user = String(process.env.BEAM_GOST_TUNNEL_USERNAME || process.env.BLAXEL_
 const pass = String(process.env.BEAM_GOST_TUNNEL_PASSWORD || process.env.BLAXEL_GOST_TUNNEL_PASSWORD || '').trim();
 const version = String(process.env.GOST_VERSION || '3.2.6');
 const wsPath = String(process.env.BEAM_GOST_WS_PATH || process.env.BLAXEL_GOST_WS_PATH || '/ws');
+const keepAlive = process.env.BEAM_TEST_KEEP_ALIVE === 'true';
 if (!publicHost || !masterHost || !user || !pass) throw new Error('GOST_PUBLIC_HOST, BEAM_GOST_MASTER_HOST, BEAM_GOST_TUNNEL_USERNAME and BEAM_GOST_TUNNEL_PASSWORD are required');
 
 const alpha = length => Array.from({ length }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[randomBytes(1)[0] % 62]).join('');
@@ -80,6 +81,11 @@ try {
   while (Date.now() < deadline) { if (await socksAuth()) break; await wait(1000); }
   if (!await socksAuth()) throw new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`);
   await reportProxyEgress();
-  process.stdout.write(`[beam-test] SOCKS5 ready: socks5://${socksUser}:${socksPass}@${publicHost}:${TEST_PORT}\n[beam-test] Press Ctrl+C to clean the sandbox.\n`);
-  await new Promise(() => { setInterval(() => {}, 60000); });
+  process.stdout.write(`[beam-test] SOCKS5 ready: socks5://${socksUser}:${socksPass}@${publicHost}:${TEST_PORT}\n`);
+  if (keepAlive) {
+    process.stdout.write('[beam-test] Keeping sandbox alive; press Ctrl+C to clean it.\n');
+    await new Promise(() => { setInterval(() => {}, 60000); });
+  }
+  process.stdout.write('[beam-test] Test completed; cleaning sandbox…\n');
+  await cleanup(0);
 } catch (error) { process.stderr.write(`[beam-test] ${error instanceof Error ? error.message : error}\n`); await cleanup(1); }

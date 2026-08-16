@@ -48,10 +48,19 @@ jobs:
           trap cleanup EXIT INT TERM
           version="$(get '.gost.version')"; local_port="$(get '.gost.localPort')"; bind_port="$(get '.gost.bindPort')"
           master_host="$(get '.gost.masterHost')"; rendezvous_port="$(get '.gost.rendezvousPort')"; transport="$(get '.gost.tunnelTransport')"
+          ws_path="$(jq -r '.gost.wsPath // "/ws"' "$config")"; tls_secure="$(jq -r '.gost.tlsSecure // false' "$config")"; tls_server_name="$(jq -r '.gost.tlsServerName // empty' "$config")"
           socks_user="$(url_encode "$(get '.gost.socksUsername')")"; socks_pass="$(url_encode "$(get '.gost.socksPassword')")"
           tunnel_user="$(url_encode "$(get '.gost.tunnelUsername')")"; tunnel_pass="$(url_encode "$(get '.gost.tunnelPassword')")"
           [[ "$version" =~ ^3\.[0-9]+\.[0-9]+$ && "$transport" =~ ^(tcp|ws|wss)$ ]] || { echo 'Invalid runner configuration' >&2; exit 1; }
           scheme="socks5"; [[ "$transport" == tcp ]] || scheme="socks5+${transport}"
+          tunnel_query=""
+          if [[ "$transport" == ws || "$transport" == wss ]]; then
+            tunnel_query="?path=$(url_encode "$ws_path")"
+            if [[ "$transport" == wss ]]; then
+              [[ "$tls_secure" == true ]] && tunnel_query+="&secure=true"
+              [[ -z "$tls_server_name" ]] || tunnel_query+="&serverName=$(url_encode "$tls_server_name")"
+            fi
+          fi
           socks_params=()
           bandwidth_in="$(jq -r '.gost.bandwidthIn // empty' "$config")"; bandwidth_out="$(jq -r '.gost.bandwidthOut // empty' "$config")"; max_connections="$(jq -r '.gost.maxConnections // empty' "$config")"
           [[ -z "$bandwidth_in" ]] || socks_params+=("limiter.in=$(url_encode "$bandwidth_in")")
@@ -62,5 +71,5 @@ jobs:
           tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod 0755 /tmp/gost
           /tmp/gost -L="socks5://${socks_user}:${socks_pass}@127.0.0.1:${local_port}${socks_query}" >/tmp/gost-socks.log 2>&1 &
           sleep 2; kill -0 "$!"
-          /tmp/gost -L="rtcp://:${bind_port}/127.0.0.1:${local_port}" -F="${scheme}://${tunnel_user}:${tunnel_pass}@${master_host}:${rendezvous_port}" >/tmp/gost-tunnel.log 2>&1 &
+          /tmp/gost -L="rtcp://:${bind_port}/127.0.0.1:${local_port}" -F="${scheme}://${tunnel_user}:${tunnel_pass}@${master_host}:${rendezvous_port}${tunnel_query}" >/tmp/gost-tunnel.log 2>&1 &
           sleep 5; kill -0 "$!"; echo 'GOST tunnel is running.'; sleep 3180
