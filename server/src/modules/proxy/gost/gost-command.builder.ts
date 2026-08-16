@@ -29,8 +29,9 @@ export class GostCommandBuilder {
 
   reverseTunnel(input: ProvisionNodeInput) {
     const scheme = input.gost.tunnelTransport === 'tcp' ? 'socks5' : `socks5+${input.gost.tunnelTransport}`;
+    const query = this.tunnelQuery(input);
     return {
-      command: 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done',
+      command: 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}${TUNNEL_QUERY}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done',
       envs: {
         BIND_PORT: String(input.gost.bindPort),
         LOCAL_PORT: String(input.gost.localPort),
@@ -39,8 +40,19 @@ export class GostCommandBuilder {
         TUNNEL_PASS: encodeURIComponent(input.gost.tunnelPassword),
         MASTER_HOST: input.gost.masterHost,
         RENDEZVOUS_PORT: String(input.gost.rendezvousPort),
+        TUNNEL_QUERY: query,
       },
     };
+  }
+
+  private tunnelQuery(input: ProvisionNodeInput) {
+    if (!['ws', 'wss'].includes(input.gost.tunnelTransport)) return '';
+    const params = [`path=${encodeURIComponent(input.gost.wsPath || '/ws')}`];
+    if (input.gost.tunnelTransport === 'wss' && input.gost.tlsSecure !== false) {
+      params.push('secure=true');
+      params.push(`serverName=${encodeURIComponent(input.gost.tlsServerName || input.gost.masterHost)}`);
+    }
+    return `?${params.join('&')}`;
   }
 
   private socksQuery(input: ProvisionNodeInput) {

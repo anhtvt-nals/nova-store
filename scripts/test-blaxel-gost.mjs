@@ -13,17 +13,18 @@ const apiBaseUrl = String(process.env.BLAXEL_API_BASE_URL || 'https://api.blaxel
 const apiVersion = String(process.env.BLAXEL_API_VERSION || '2026-04-16');
 const image = String(process.env.BLAXEL_IMAGE || 'blaxel/base-image:latest');
 const region = String(process.env.BLAXEL_REGION || 'us-pdx-1');
-const enableNetworkProxy = process.env.BLAXEL_NETWORK_PROXY !== 'false';
+const egressGateway = String(process.env.BLAXEL_EGRESS_GATEWAY || '').trim();
 const memory = boundedInteger(process.env.BLAXEL_SANDBOX_MEMORY_MB, 1024, 512, 65536);
 const readyTimeoutMs = boundedInteger(process.env.BLAXEL_READY_TIMEOUT_MS, 180000, 30000, 600000);
 const gostVersion = requiredVersion('GOST_VERSION', process.env.GOST_VERSION || '3.2.6');
-const masterHost = required('GOST_MASTER_HOST');
+const masterHost = String(process.env.BLAXEL_GOST_MASTER_HOST || process.env.GOST_MASTER_HOST || '').trim() || fail('BLAXEL_GOST_MASTER_HOST is required');
 const publicHost = String(process.env.GOST_PUBLIC_HOST || masterHost).trim();
-const rendezvousPort = boundedInteger(process.env.GOST_RENDEZVOUS_PORT, 28443, 1, 65535);
+const rendezvousPort = boundedInteger(process.env.BLAXEL_GOST_RENDEZVOUS_PORT, 443, 1, 65535);
 const localPort = boundedInteger(process.env.GOST_LOCAL_SOCKS_PORT, 1080, 1, 65535);
-const tunnelTransport = ['tcp', 'ws', 'wss'].includes(process.env.GOST_TUNNEL_TRANSPORT || 'tcp') ? (process.env.GOST_TUNNEL_TRANSPORT || 'tcp') : fail('GOST_TUNNEL_TRANSPORT must be tcp, ws, or wss');
-const tunnelUsername = required('GOST_TUNNEL_USERNAME');
-const tunnelPassword = required('GOST_TUNNEL_PASSWORD');
+const tunnelTransport = ['tcp', 'ws', 'wss'].includes(process.env.BLAXEL_GOST_TUNNEL_TRANSPORT || 'wss') ? (process.env.BLAXEL_GOST_TUNNEL_TRANSPORT || 'wss') : fail('BLAXEL_GOST_TUNNEL_TRANSPORT must be tcp, ws, or wss');
+const wsPath = String(process.env.BLAXEL_GOST_WS_PATH || '/ws').trim();
+const tunnelUsername = required('BLAXEL_GOST_TUNNEL_USERNAME');
+const tunnelPassword = required('BLAXEL_GOST_TUNNEL_PASSWORD');
 const { workspace, apiKey } = parseKey(process.env.BLAXEL_TEST_KEY || process.env.BLAXEL_PROVIDER_KEY || '');
 const socksUsername = String(process.env.BLAXEL_TEST_SOCKS_USERNAME || alphaNumeric(10));
 const socksPassword = String(process.env.BLAXEL_TEST_SOCKS_PASSWORD || alphaNumeric(10));
@@ -97,7 +98,16 @@ async function exec(sandboxUrl, name, command, env = {}, waitForCompletion = fal
   const response = await fetch(`${url.origin}/process`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, command, env, waitForCompletion, timeout, restartOnFailure: !waitForCompletion, maxRestarts: waitForCompletion ? 0 : 1000 }),
+    body: JSON.stringify({
+      name,
+      command,
+      env,
+      waitForCompletion,
+      timeout,
+      keepAlive: !waitForCompletion,
+      restartOnFailure: !waitForCompletion,
+      maxRestarts: waitForCompletion ? 0 : 1000,
+    }),
   });
   if (!response.ok) throw new Error(`Blaxel sandbox process ${name} failed (${response.status}): ${(await response.text()).slice(0, 500) || response.statusText}`);
   if (waitForCompletion) {
@@ -177,41 +187,30 @@ try {
     spec: {
       enabled: true,
       region,
-      // Blaxel sandboxes have no direct HTTPS egress in this workspace. This
-      // enables the platform HTTP(S) proxy and its injected proxy variables.
-      ...(enableNetworkProxy ? {
-        network: {
-          proxy: {
-            routing: [{
-              destinations: '["api.ipify.org","github.com","*.github.com","*.githubusercontent.com"]',
-              headers: '{}',
-              body: '{}',
-              secrets: '{}',
-            }],
-          },
-        },
-      } : {}),
+      // A GOST reverse tunnel needs raw outbound TCP. Blaxel's HTTP proxy is
+      // deliberately not configured here because it cannot carry that tunnel.
+      ...(egressGateway ? { network: { egress: { mode: 'dedicated', gateway: egressGateway } } } : {}),
       runtime: { image, memory, ttl: '1h' },
     },
   });
   sandboxCreated = true;
   const sandbox = await waitForDeployment(sandboxName);
   sandboxUrl = sandbox.metadata.url;
-  const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
-  await exec(sandboxUrl, 'install-gost', install, {}, true, 90);
-  const egress = await exec(sandboxUrl, 'check-egress-ip', 'curl -4 -fsS --connect-timeout 5 https://api.ipify.org || { status=$?; echo "UNAVAILABLE curl-exit-${status}"; exit 0; }', {}, true, 15);
-  const egressOutput = [egress?.logs, egress?.stdout].filter(Boolean).join('\n').trim();
-  if (egressOutput) process.stdout.write(`[blaxel-test] Sandbox egress diagnostic: ${egressOutput}\n`);
   const rendezvousCheck = 'timeout 5 bash -c \'exec 3<>/dev/tcp/"$TEST_HOST"/"$TEST_PORT"\' && echo "CONNECTED $TEST_HOST:$TEST_PORT" || { status=$?; echo "TCP_CHECK_FAILED status=$status $TEST_HOST:$TEST_PORT"; exit $status; }';
   await exec(sandboxUrl, 'check-rendezvous', rendezvousCheck, { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
+  const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
+  await exec(sandboxUrl, 'install-gost', install, {}, true, 60);
   const query = gostQuery();
   await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
   }, false);
   const scheme = tunnelTransport === 'tcp' ? 'socks5' : `socks5+${tunnelTransport}`;
-  await exec(sandboxUrl, 'gost-tunnel', 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done', {
+  const tunnelQuery = tunnelTransport === 'wss'
+    ? `?path=${encodeURIComponent(wsPath)}&secure=true&serverName=${encodeURIComponent(masterHost)}`
+    : tunnelTransport === 'ws' ? `?path=${encodeURIComponent(wsPath)}` : '';
+  await exec(sandboxUrl, 'gost-tunnel', 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}${TUNNEL_QUERY}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done', {
     BIND_PORT: String(TEST_PORT), LOCAL_PORT: String(localPort), TUNNEL_SCHEME: scheme,
-    TUNNEL_USER: encodeURIComponent(tunnelUsername), TUNNEL_PASS: encodeURIComponent(tunnelPassword), MASTER_HOST: masterHost, RENDEZVOUS_PORT: String(rendezvousPort),
+    TUNNEL_USER: encodeURIComponent(tunnelUsername), TUNNEL_PASS: encodeURIComponent(tunnelPassword), MASTER_HOST: masterHost, RENDEZVOUS_PORT: String(rendezvousPort), TUNNEL_QUERY: tunnelQuery,
   }, false);
   await waitForProxy();
   process.stdout.write(`\n[blaxel-test] SOCKS5 ready: socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}\n[blaxel-test] Press Ctrl+C to delete the sandbox and release port ${TEST_PORT}.\n`);

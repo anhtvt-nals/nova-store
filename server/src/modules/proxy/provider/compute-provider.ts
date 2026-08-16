@@ -27,6 +27,9 @@ export interface ProvisionNodeInput {
     masterHost: string;
     rendezvousPort: number;
     tunnelTransport: 'tcp' | 'ws' | 'wss';
+    wsPath?: string;
+    tlsSecure?: boolean;
+    tlsServerName?: string;
     tunnelUsername: string;
     tunnelPassword: string;
     socksUsername: string;

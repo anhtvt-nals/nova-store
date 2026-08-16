@@ -213,8 +213,9 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const renewBeforeMinutes = Math.max(1, Math.min(ttlMinutes - 1, Number(this.config.get('E2B_RENEW_BEFORE_MINUTES') || 10)));
       const sandboxExpiresAt = new Date(Date.now() + ttlMinutes * 60000);
       const nextRotationAt = new Date(sandboxExpiresAt.getTime() - renewBeforeMinutes * 60000);
-      const tunnelUsername = this.required('GOST_TUNNEL_USERNAME');
-      const tunnelPassword = this.required('GOST_TUNNEL_PASSWORD');
+      const isBlaxel = providerDriver === 'blaxel';
+      const tunnelUsername = this.required(isBlaxel ? 'BLAXEL_GOST_TUNNEL_USERNAME' : 'GOST_TUNNEL_USERNAME');
+      const tunnelPassword = this.required(isBlaxel ? 'BLAXEL_GOST_TUNNEL_PASSWORD' : 'GOST_TUNNEL_PASSWORD');
 
       instance = await provider.provisionNode({
         nodeId: context.nodeId,
@@ -230,9 +231,14 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           localPort: Number(this.config.get('GOST_LOCAL_SOCKS_PORT') || 1080),
           publicHost: endpoint.publicHost,
           bindPort: endpoint.tunnelPort,
-          masterHost: String(this.config.get('GOST_MASTER_HOST') || endpoint.publicHost),
-          rendezvousPort: Number(this.config.get('GOST_RENDEZVOUS_PORT') || 28443),
-          tunnelTransport: this.tunnelTransport(),
+          masterHost: isBlaxel
+            ? this.required('BLAXEL_GOST_MASTER_HOST')
+            : String(this.config.get('GOST_MASTER_HOST') || endpoint.publicHost),
+          rendezvousPort: Number(this.config.get(isBlaxel ? 'BLAXEL_GOST_RENDEZVOUS_PORT' : 'GOST_RENDEZVOUS_PORT') || (isBlaxel ? 443 : 28443)),
+          tunnelTransport: this.tunnelTransport(isBlaxel ? 'BLAXEL_GOST_TUNNEL_TRANSPORT' : 'GOST_TUNNEL_TRANSPORT', isBlaxel ? 'wss' : 'tcp'),
+          wsPath: isBlaxel ? String(this.config.get('BLAXEL_GOST_WS_PATH') || '/ws') : undefined,
+          tlsSecure: isBlaxel ? true : undefined,
+          tlsServerName: isBlaxel ? this.required('BLAXEL_GOST_MASTER_HOST') : undefined,
           tunnelUsername,
           tunnelPassword,
           socksUsername: accountCredential.username,
@@ -358,9 +364,9 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     return value;
   }
 
-  private tunnelTransport(): 'tcp' | 'ws' | 'wss' {
-    const value = String(this.config.get('GOST_TUNNEL_TRANSPORT') || 'tcp');
-    if (!['tcp', 'ws', 'wss'].includes(value)) throw new Error('GOST_TUNNEL_TRANSPORT must be tcp, ws, or wss');
+  private tunnelTransport(key = 'GOST_TUNNEL_TRANSPORT', fallback = 'tcp'): 'tcp' | 'ws' | 'wss' {
+    const value = String(this.config.get(key) || fallback);
+    if (!['tcp', 'ws', 'wss'].includes(value)) throw new Error(`${key} must be tcp, ws, or wss`);
     return value as 'tcp' | 'ws' | 'wss';
   }
 

@@ -30,6 +30,7 @@ export class BlaxelProvider implements ComputeProvider {
       spec: {
         enabled: true,
         region: String(this.config.get('BLAXEL_REGION') || 'us-pdx-1'),
+        ...(this.egressGateway() ? { network: { egress: { mode: 'dedicated', gateway: this.egressGateway() } } } : {}),
         runtime: {
           image,
           memory: this.memoryMb(),
@@ -43,7 +44,7 @@ export class BlaxelProvider implements ComputeProvider {
       const sandboxUrl = ready.metadata?.url;
       if (!sandboxUrl) throw new Error(`Blaxel sandbox ${sandboxName} did not return its sandbox API URL`);
       const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; ${this.gost.install(input.gost.version)}`;
-      await this.exec(sandboxUrl, apiKey, 'install-gost', install, {}, true, 90);
+      await this.exec(sandboxUrl, apiKey, 'install-gost', install, {}, true, 60);
       const local = this.gost.localSocks(input);
       await this.exec(sandboxUrl, apiKey, 'gost-socks', local.command, local.envs, false);
       const tunnel = this.gost.reverseTunnel(input);
@@ -89,7 +90,16 @@ export class BlaxelProvider implements ComputeProvider {
     const response = await fetch(`${url.origin}/process`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, command, env, waitForCompletion, timeout, restartOnFailure: !waitForCompletion, maxRestarts: waitForCompletion ? 0 : 1000 }),
+      body: JSON.stringify({
+        name,
+        command,
+        env,
+        waitForCompletion,
+        timeout,
+        keepAlive: !waitForCompletion,
+        restartOnFailure: !waitForCompletion,
+        maxRestarts: waitForCompletion ? 0 : 1000,
+      }),
     });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
@@ -134,6 +144,10 @@ export class BlaxelProvider implements ComputeProvider {
   private memoryMb() {
     const configured = Number(this.config.get('BLAXEL_SANDBOX_MEMORY_MB') || 1024);
     return Math.max(512, Math.min(65536, Number.isFinite(configured) ? Math.floor(configured) : 1024));
+  }
+
+  private egressGateway() {
+    return String(this.config.get('BLAXEL_EGRESS_GATEWAY') || '').trim();
   }
 
   private mapInstance(sandbox: BlaxelSandbox): ProviderInstance {
