@@ -3,7 +3,7 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
-import { AdjustCreditDto, CreateApiKeyDto, CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import { AddCreditTopUpDto, AdjustCreditDto, CreateApiKeyDto, CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 @UseGuards(AdminGuard)
 @Controller('admin')
@@ -16,6 +16,7 @@ export class AdminController {
   @Post('users/:id/reset-password') resetUserPassword(@Param('id', ParseIntPipe) id: number) { return this.service.resetUserPassword(id); }
   @Get('credits') credits() { return this.service.credits(); }
   @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
+  @Post('credits/:id/top-up') topUpCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AddCreditTopUpDto) { return this.service.topUpCredit(id, body.amount, body.currency, body.note || '', user.profileId); }
   @Delete('users/:id') @HttpCode(204) deleteUser(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.service.deleteUser(id, user); }
   @Get('categories') categories() { return this.service.categories(); }
   @Post('categories') createCategory(@Body() body: CreateCategoryDto) { return this.service.createCategory(body); }

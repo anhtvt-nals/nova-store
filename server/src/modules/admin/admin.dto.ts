@@ -14,6 +14,11 @@ export class AdjustCreditDto {
   @IsNumber({ maxDecimalPlaces: 2 }) amount: number;
   @IsOptional() @IsString() @Length(0, 300) note?: string;
 }
+export class AddCreditTopUpDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) amount: number;
+  @IsIn(['USD', 'IDR']) currency: 'USD' | 'IDR';
+  @IsOptional() @IsString() @Length(0, 300) note?: string;
+}
 export class CreateApiKeyDto {
   @IsString() @Length(2, 100) label: string;
 }

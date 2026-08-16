@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { mapOrder } from '../../common/mappers';
 import { DatabaseService } from '../database/database.service';
 import { ProxyCredentialService } from '../proxy/proxy-credential.service';
-import type { CreateOrderDto, QuoteOrderDto } from './orders.dto';
+import type { CreateOrderDto, ExtendOrderDto, QuoteOrderDto } from './orders.dto';
 
 const orderSelect = 'id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,products(code,name,service_type),resources(name)';
 
@@ -62,6 +62,43 @@ export class OrdersService {
     const order = this.db.unwrap(result, 'Order was created but could not be reloaded');
     if (!order) throw new NotFoundException('Order was created but could not be reloaded');
     return mapOrder(order);
+  }
+
+  async extend(profileId: number, orderId: number, dto: ExtendOrderDto) {
+    if (![1, 3, 7, 15, 30].includes(dto.rentalDays)) {
+      throw new BadRequestException('Extension days must be one of: 1, 3, 7, 15, or 30');
+    }
+    const result = await this.db.client.rpc('extend_proxy_order', {
+      target_profile_id: profileId,
+      target_order_id: orderId,
+      requested_days: dto.rentalDays,
+    });
+    if (result.error) throw new BadRequestException(result.error.message);
+    const orderResult = await this.db.client.from('orders').select(orderSelect).eq('id', orderId).maybeSingle();
+    const order = this.db.unwrap(orderResult, 'Order was extended but could not be reloaded');
+    if (!order) throw new NotFoundException('Order not found');
+    return mapOrder(order);
+  }
+
+  async exportConnections(profileId: number) {
+    const now = new Date().toISOString();
+    const [nodesResult, credential] = await Promise.all([
+      this.db.client.from('proxy_nodes')
+        .select('id,order_id,public_host,tunnel_port,status,orders!inner(profile_id,status,expires_at)')
+        .eq('orders.profile_id', profileId)
+        .eq('orders.status', 'active')
+        .gt('orders.expires_at', now)
+        .in('status', ['online', 'rotating', 'degraded']),
+      this.credentials.get(profileId),
+    ]);
+    const nodes = this.db.unwrap(nodesResult, 'Unable to load proxy connections') as any[];
+    if (!credential) throw new NotFoundException('Proxy credentials are not available');
+    const encode = (value: string) => encodeURIComponent(value);
+    const lines = nodes
+      .filter(node => node.public_host && node.tunnel_port)
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .map(node => `socks5://${encode(credential.username)}:${encode(credential.password)}@${node.public_host}:${node.tunnel_port}`);
+    return { filename: 'nodenesia-socks5.txt', content: `${lines.join('\n')}${lines.length ? '\n' : ''}`, count: lines.length };
   }
 
   private async availableCustomerCapacity() {

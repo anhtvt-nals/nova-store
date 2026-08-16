@@ -48,12 +48,23 @@ export class AdminService {
   }
 
   async users() {
-    const [profiles, orders] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [profiles, orders, usage] = await Promise.all([
       this.db.client.from('profiles').select('id,name,email,status,is_trial').neq('role', 'admin').order('created_at', { ascending: false }),
       this.db.client.from('orders').select('profile_id,plan_name_snapshot,created_at').eq('status', 'active').order('created_at', { ascending: false }),
+      this.db.client.from('usage_daily').select('profile_id,usage_date,requests,successful_requests'),
     ]);
     const rows = this.db.unwrap(profiles, 'Unable to load users');
     const activeOrders = this.db.unwrap(orders, 'Unable to load user plans');
+    const usageRows = this.db.unwrap(usage, 'Unable to load user usage') as Array<{ profile_id: number; usage_date: string; requests: number; successful_requests: number }>;
+    const usageByProfile = new Map<number, { requests: number; successful: number; today: number }>();
+    for (const entry of usageRows) {
+      const current = usageByProfile.get(entry.profile_id) || { requests: 0, successful: 0, today: 0 };
+      current.requests += Number(entry.requests || 0);
+      current.successful += Number(entry.successful_requests || 0);
+      if (entry.usage_date === today) current.today += Number(entry.requests || 0);
+      usageByProfile.set(entry.profile_id, current);
+    }
     return rows.map(profile => ({
       id: profile.id,
       name: profile.name,
@@ -61,6 +72,7 @@ export class AdminService {
       status: profile.status,
       isTrial: profile.is_trial,
       planName: activeOrders.find(order => order.profile_id === profile.id)?.plan_name_snapshot || 'No active plan',
+      usage: usageByProfile.get(profile.id) || { requests: 0, successful: 0, today: 0 },
     }));
   }
 
@@ -139,6 +151,20 @@ export class AdminService {
     });
     const balance = Number(this.db.unwrap(result, 'Unable to adjust credit'));
     return { profileId, balance };
+  }
+
+  async topUpCredit(profileId: number, amount: number, currency: 'USD' | 'IDR', note: string, actorProfileId: number) {
+    const settingsResult = await this.db.client.from('app_settings').select('key,value').in('key', ['credits_per_usd', 'usd_to_idr_rate']);
+    const settings = this.db.unwrap(settingsResult, 'Unable to load credit conversion settings');
+    const values = Object.fromEntries(settings.map(row => [row.key, Number(row.value)]));
+    const creditsPerUsd = values.credits_per_usd;
+    const usdToIdrRate = values.usd_to_idr_rate;
+    if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0 || !Number.isFinite(usdToIdrRate) || usdToIdrRate <= 0) {
+      throw new BadRequestException('Credit conversion settings are invalid');
+    }
+    const creditAmount = Number((currency === 'USD' ? amount * creditsPerUsd : (amount / usdToIdrRate) * creditsPerUsd).toFixed(2));
+    if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new BadRequestException('Top-up amount is too small');
+    return this.adjustCredit(profileId, creditAmount, note, actorProfileId);
   }
 
   async categories() {

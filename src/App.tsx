@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy,
+  Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy, Download,
   FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, Power, RefreshCw,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
   useCreateCategory, useCreateOrder, useCreateProduct, useCreateSandboxKey, useCreateUser,
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
-  useCreditBalance, useCurrentUser, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
+  useCreditBalance, useCurrentUser, useExtendOrder, useExportProxyConnections, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, useListAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
-  useAdjustCredit, useCatalogSettings, useCreditWallets, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
+  useAddCreditTopUp, useCatalogSettings, useCreditWallets, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
   getGetAdminOverviewQueryKey, getGetClientOverviewQueryKey, getGetOrderConnectionQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey, getListCategoriesQueryKey, getListClientOrdersQueryKey, getListClientProxyNodesQueryKey, getListNodesQueryKey,
   getCreditWalletsQueryKey, getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, subscribeToProxyNodeEvents,
@@ -379,8 +379,15 @@ function IconActionButton({ label, onClick, disabled, tone = 'default', testId, 
   </Tooltip>;
 }
 
+function Pagination({ page, total, onChange }: { page: number; total: number; onChange: (page: number) => void }) {
+  if (total <= 1) return null;
+  return <div className="flex items-center justify-between border-t border-[#edf2f3] px-5 py-3 text-xs text-slate-500"><span>Page {page} of {total}</span><div className="flex gap-2"><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</button><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page >= total} onClick={() => onChange(page + 1)}>Next</button></div></div>;
+}
+
 function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number }) {
-  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{users.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></div></div><div className="flex items-center gap-2"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><IconActionButton label="Edit user" onClick={() => onEdit(user)} testId={`button-edit-user-${user.id}`}><Pencil size={15} /></IconActionButton><IconActionButton label="Reset password" onClick={() => onResetPassword(user)} disabled={resettingId === user.id} testId={`button-reset-password-${user.id}`}><KeyRound size={15} /></IconActionButton><IconActionButton label={user.status === 'active' ? 'Suspend user' : 'Activate user'} onClick={() => onToggle(user)} testId={`button-toggle-user-${user.id}`}>{user.status === 'active' ? <Ban size={15} /> : <Power size={15} />}</IconActionButton><IconActionButton label="Delete user" tone="danger" onClick={() => onDelete(user.id)} testId={`button-delete-user-${user.id}`}><Trash2 size={15} /></IconActionButton></div></div>)}</div></State></div>;
+  const [page, setPage] = useState(1); const total = Math.max(1, Math.ceil(users.length / 5)); const visible = users.slice((page - 1) * 5, page * 5);
+  useEffect(() => { if (page > total) setPage(total); }, [page, total]);
+  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{visible.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p><p className="mt-1 text-[10px] text-slate-400">Usage: {(user.usage?.today || 0).toLocaleString()} today · {(user.usage?.requests || 0).toLocaleString()} total · {user.usage?.requests ? `${Math.round(((user.usage.successful || 0) / user.usage.requests) * 100)}% success` : '—'}</p></div></div><div className="flex items-center gap-2"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><IconActionButton label="Edit user" onClick={() => onEdit(user)} testId={`button-edit-user-${user.id}`}><Pencil size={15} /></IconActionButton><IconActionButton label="Reset password" onClick={() => onResetPassword(user)} disabled={resettingId === user.id} testId={`button-reset-password-${user.id}`}><KeyRound size={15} /></IconActionButton><IconActionButton label={user.status === 'active' ? 'Suspend user' : 'Activate user'} onClick={() => onToggle(user)} testId={`button-toggle-user-${user.id}`}>{user.status === 'active' ? <Ban size={15} /> : <Power size={15} />}</IconActionButton><IconActionButton label="Delete user" tone="danger" onClick={() => onDelete(user.id)} testId={`button-delete-user-${user.id}`}><Trash2 size={15} /></IconActionButton></div></div>)}</div><Pagination page={page} total={total} onChange={setPage} /></State></div>;
 }
 
 function GeneratedPasswordCard({ email, password, onDismiss }: { email: string; password: string; onDismiss: () => void }) {
@@ -412,7 +419,9 @@ function GeneratedPasswordCard({ email, password, onDismiss }: { email: string; 
 }
 
 function KeysTable({ keys, loading, onDelete }: { keys: SandboxKey[]; loading: boolean; onDelete: (id: number) => void }) {
-  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!keys.length}><div className="divide-y divide-[#edf2f3]">{keys.map(key => <div key={key.id} className="flex items-center justify-between gap-3 px-5 py-4" data-testid={`row-key-${key.id}`}><div><div className="flex items-center gap-2"><p className="text-sm font-bold text-[#142037]">{key.label}</p><Badge tone={key.status === 'active' ? 'green' : 'red'}>{key.status}</Badge></div><p className="mono mt-1 text-xs text-slate-500">{key.prefix}•••••• · {key.requests.toLocaleString()} requests</p></div><button onClick={() => onDelete(key.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" data-testid={`button-delete-key-${key.id}`}><Trash2 size={15} /></button></div>)}</div></State></div>;
+  const [page, setPage] = useState(1); const total = Math.max(1, Math.ceil(keys.length / 5)); const visible = keys.slice((page - 1) * 5, page * 5);
+  useEffect(() => { if (page > total) setPage(total); }, [page, total]);
+  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!keys.length}><div className="divide-y divide-[#edf2f3]">{visible.map(key => <div key={key.id} className="flex items-center justify-between gap-3 px-5 py-4" data-testid={`row-key-${key.id}`}><div><div className="flex items-center gap-2"><p className="text-sm font-bold text-[#142037]">{key.label}</p><Badge tone={key.status === 'active' ? 'green' : 'red'}>{key.status}</Badge></div><p className="mono mt-1 text-xs text-slate-500">{key.prefix}•••••• · {key.requests.toLocaleString()} requests</p></div><button onClick={() => onDelete(key.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" data-testid={`button-delete-key-${key.id}`}><Trash2 size={15} /></button></div>)}</div><Pagination page={page} total={total} onChange={setPage} /></State></div>;
 }
 
 function AdminOrdersTable({ orders, loading, onStatus }: { orders: AdminOrder[]; loading: boolean; onStatus: (id: number, status: 'active' | 'rejected') => void }) {
@@ -707,12 +716,16 @@ function AdminProviderApiKeysPage() {
   const [providerId, setProviderId] = useState(0);
   const [label, setLabel] = useState('');
   const [secret, setSecret] = useState('');
+  const [page, setPage] = useState(1);
   const selectedProvider = providers.data?.find(provider => provider.id === providerId);
   const isGithub = selectedProvider?.code === 'github';
+  const totalPages = Math.max(1, Math.ceil((keys.data?.length || 0) / 5));
+  const visibleKeys = (keys.data || []).slice((page - 1) * 5, page * 5);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const refresh = () => { void qc.invalidateQueries({ queryKey: getListProviderApiKeysQueryKey() }); void qc.invalidateQueries({ queryKey: getListProvidersQueryKey() }); };
   const submit = () => { if (!providerId || !label || secret.length < 8) return; createKey.mutate({ providerId, data: { label, secret } }, { onSuccess: () => { setLabel(''); setSecret(''); refresh(); }, onError: error => window.alert(error.message) }); };
   const inputClass = 'rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]';
-  return <PageLayout admin eyebrow="proxy module" title="Provider API keys" body="Store upstream credentials per provider. Secrets are encrypted at rest and never returned by the API."><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h2 className="font-extrabold">Add provider key</h2><div className="mt-5 grid gap-3"><select className={inputClass} value={providerId || ''} onChange={event => setProviderId(Number(event.target.value))}><option value="">Select provider</option>{providers.data?.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select><input className={inputClass} placeholder="Label" value={label} onChange={event => setLabel(event.target.value)} /><input className={inputClass} type="password" autoComplete="new-password" placeholder={isGithub ? 'GITHUB_OWNER|GITHUB_API_KEY' : 'Provider API secret'} value={secret} onChange={event => setSecret(event.target.value)} />{isGithub && <p className="text-xs leading-5 text-slate-500">Format: <code>GITHUB_OWNER|GITHUB_API_KEY</code>. The owner is retained only as a masked prefix; the complete value is encrypted at rest.</p>}<p className="text-xs leading-5 text-slate-500">Requires `PROVIDER_SECRET_ENCRYPTION_KEY` on the Nest server.</p><Button disabled={!providerId || !label || secret.length < 8 || createKey.isPending} onClick={submit}>{createKey.isPending ? 'Encrypting…' : 'Save encrypted key'}</Button></div></div><State loading={keys.isLoading} error={keys.isError} onRetry={() => keys.refetch()} empty={!keys.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="divide-y divide-[#edf2f3]">{keys.data?.map(key => <div key={key.id} className="flex items-center justify-between gap-4 px-5 py-4"><div><div className="flex items-center gap-2"><p className="text-sm font-bold">{key.label}</p><Badge tone={key.status === 'active' ? 'green' : 'red'}>{key.status}</Badge></div><p className="mt-1 text-xs text-slate-500">{key.providerName}</p><p className="mono mt-1 text-[10px] text-slate-400">{key.maskedKey}</p>{key.status === 'revoked' && key.revokedReason && <p className="mt-1 text-[11px] text-red-500">Auto-disabled: {key.revokedReason}</p>}</div>{key.status === 'active' && <Button variant="danger" className="min-h-8 px-3 text-xs" onClick={() => revokeKey.mutate({ id: key.id }, { onSuccess: refresh })}>Revoke</Button>}</div>)}</div></div></State></div></PageLayout>;
+  return <PageLayout admin eyebrow="proxy module" title="Provider API keys" body="Store upstream credentials per provider. Secrets are encrypted at rest and never returned by the API."><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h2 className="font-extrabold">Add provider key</h2><div className="mt-5 grid gap-3"><select className={inputClass} value={providerId || ''} onChange={event => setProviderId(Number(event.target.value))}><option value="">Select provider</option>{providers.data?.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select><input className={inputClass} placeholder="Label" value={label} onChange={event => setLabel(event.target.value)} /><input className={inputClass} type="password" autoComplete="new-password" placeholder={isGithub ? 'GITHUB_OWNER|GITHUB_API_KEY' : 'Provider API secret'} value={secret} onChange={event => setSecret(event.target.value)} />{isGithub && <p className="text-xs leading-5 text-slate-500">Format: <code>GITHUB_OWNER|GITHUB_API_KEY</code>. The owner is retained only as a masked prefix; the complete value is encrypted at rest.</p>}<p className="text-xs leading-5 text-slate-500">Requires `PROVIDER_SECRET_ENCRYPTION_KEY` on the Nest server.</p><Button disabled={!providerId || !label || secret.length < 8 || createKey.isPending} onClick={submit}>{createKey.isPending ? 'Encrypting…' : 'Save encrypted key'}</Button></div></div><State loading={keys.isLoading} error={keys.isError} onRetry={() => keys.refetch()} empty={!keys.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="divide-y divide-[#edf2f3]">{visibleKeys.map(key => <div key={key.id} className="flex items-center justify-between gap-4 px-5 py-4"><div><div className="flex items-center gap-2"><p className="text-sm font-bold">{key.label}</p><Badge tone={key.status === 'active' ? 'green' : 'red'}>{key.status}</Badge></div><p className="mt-1 text-xs text-slate-500">{key.providerName}</p><p className="mono mt-1 text-[10px] text-slate-400">{key.maskedKey}</p>{key.status === 'revoked' && key.revokedReason && <p className="mt-1 text-[11px] text-red-500">Auto-disabled: {key.revokedReason}</p>}</div>{key.status === 'active' && <Button variant="danger" className="min-h-8 px-3 text-xs" onClick={() => revokeKey.mutate({ id: key.id }, { onSuccess: refresh })}>Revoke</Button>}</div>)}</div><Pagination page={page} total={totalPages} onChange={setPage} /></div></State></div></PageLayout>;
 }
 
 function ProxyPriceRow({ setting }: { setting: { id: number; name: string; countryCode: string | null; basePrice: number; currency: string; isActive: boolean } }) {
@@ -744,19 +757,21 @@ function AdminGeneralSettingsPage() {
 
 function AdminCreditsPage() {
   const wallets = useCreditWallets();
-  const adjust = useAdjustCredit();
+  const topUp = useAddCreditTopUp();
   const updateUser = useUpdateUser();
+  const settings = useGeneralSettings();
   const qc = useQueryClient();
-  const applyAdjustment = (wallet: CreditWallet) => {
-    const raw = window.prompt(`Credit adjustment for ${wallet.email}. Use a positive or negative number.`, '');
-    if (raw === null) return;
-    const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount === 0) return window.alert('Enter a non-zero credit amount.');
-    const note = window.prompt('Audit note (required):', '')?.trim();
-    if (!note) return window.alert('An audit note is required.');
-    adjust.mutate({ id: wallet.id, data: { amount, note } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) });
+  const [selected, setSelected] = useState<CreditWallet | null>(null);
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState<'USD' | 'IDR'>('USD');
+  const [note, setNote] = useState('Manual credit top-up');
+  const numericAmount = Number(amount);
+  const credits = Number.isFinite(numericAmount) && numericAmount > 0 ? (currency === 'USD' ? numericAmount * (settings.data?.creditsPerUsd || 100) : (numericAmount / (settings.data?.usdToIdrRate || 16000)) * (settings.data?.creditsPerUsd || 100)) : 0;
+  const addCredit = () => {
+    if (!selected || !note.trim() || credits <= 0) return;
+    topUp.mutate({ id: selected.id, data: { amount: numericAmount, currency, note: note.trim() } }, { onSuccess: () => { setSelected(null); void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }); }, onError: error => window.alert(error.message) });
   };
-  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual adjustments are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_auto] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span /></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_auto] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div className="flex items-center gap-2"><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge>{wallet.isTrial && <button className="text-xs font-bold text-[#13716e]" disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })}>Make regular</button>}</div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><Button className="min-h-8 px-3 text-xs" variant="outline" disabled={adjust.isPending} onClick={() => applyAdjustment(wallet)}><Plus size={14} /> Adjust</Button></div>)}</div></State></PageLayout>;
+  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual top-ups are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_auto] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span /></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_auto] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge></div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><div className="flex justify-end gap-2"><IconActionButton label="Add credit" onClick={() => { setSelected(wallet); setAmount(''); setCurrency('USD'); setNote('Manual credit top-up'); }} disabled={topUp.isPending}><Plus size={15} /></IconActionButton>{wallet.isTrial && <IconActionButton label="Promote to regular account" onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })} disabled={updateUser.isPending}><Power size={15} /></IconActionButton>}</div></div>)}</div></State>{selected && <Modal title={`Add credit · ${selected.name}`} onClose={() => setSelected(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">Enter USD or IDR to calculate the Credit top-up.</p><div className="grid grid-cols-[1fr_120px] gap-3"><label className="text-sm font-bold">Amount<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Currency<select className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={currency} onChange={event => setCurrency(event.target.value as 'USD' | 'IDR')}><option>USD</option><option>IDR</option></select></label></div><div className="rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-4 py-3"><p className="text-xs text-[#13716e]">Credit to add</p><p className="mono mt-1 text-xl font-extrabold text-[#13716e]">{credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} cr</p></div><label className="text-sm font-bold">Audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={note} onChange={event => setNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={topUp.isPending || credits <= 0 || !note.trim()} onClick={addCredit}>{topUp.isPending ? 'Adding…' : 'Add credit'}</Button></div></div></Modal>}</PageLayout>;
 }
 
 function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' }) {
@@ -1003,6 +1018,10 @@ function ClientPortalPage() {
   const runtimeNodes = useListClientProxyNodes();
   const qc = useQueryClient();
   const recreateAll = useRecreateAllProxyNodes();
+  const exportConnections = useExportProxyConnections();
+  const extendOrder = useExtendOrder();
+  const [extendingOrder, setExtendingOrder] = useState<Order | null>(null);
+  const [extensionDays, setExtensionDays] = useState(1);
   const activeOrders = (orders.data || []).filter(order => order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date()));
   const activeNodeTotal = activeOrders.reduce((total, order) => total + order.nodeCount, 0);
   const failedOrderIds = new Set((orders.data || []).filter(order => order.status === 'provisioning_failed').map(order => String(order.id)));
@@ -1040,6 +1059,28 @@ function ClientPortalPage() {
       onError: error => window.alert(error.message),
     });
   };
+  const downloadConnections = () => exportConnections.mutate(undefined, {
+    onSuccess: ({ filename, content, count }) => {
+      if (!count) return window.alert('No reachable proxy nodes are available to download yet.');
+      const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = filename; anchor.click();
+      URL.revokeObjectURL(url);
+    },
+    onError: error => window.alert(error.message),
+  });
+  const submitExtension = () => {
+    if (!extendingOrder) return;
+    extendOrder.mutate({ id: extendingOrder.id, data: { rentalDays: extensionDays } }, {
+      onSuccess: () => {
+        setExtendingOrder(null);
+        void qc.invalidateQueries({ queryKey: getListClientOrdersQueryKey() });
+        void qc.invalidateQueries({ queryKey: getListClientProxyNodesQueryKey() });
+        void qc.invalidateQueries({ queryKey: ['credit-balance'] });
+      },
+      onError: error => window.alert(error.message),
+    });
+  };
 
   return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]">
     <ClientHeader active="proxy" />
@@ -1049,7 +1090,8 @@ function ClientPortalPage() {
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric label={t('activeNodes')} value={String(liveNodeCount)} detail={t('liveStatus')} icon={Network} tone="teal" /><Metric label={t('requestsToday')} value={(overview.data?.requestsToday || 0).toLocaleString()} detail={t('proxyTraffic')} icon={Activity} tone="orange" /><Metric label={t('successRate')} value={`${overview.data?.successRate ?? 100}%`} detail={t('last24Hours')} icon={Signal} tone="teal" /><Metric label={t('proxyOrders')} value={String(orders.data?.length || 0)} detail={t('accountHistory')} icon={Gauge} tone="orange" /></section>
 
-      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title={t('myNodes')} body={t('myNodesBody')} action={<Button variant="danger" disabled={!recreateNodeTotal || recreateAll.isPending} onClick={requestRecreateAll} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${recreateNodeTotal})`}</Button>} />
+      <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow="portfolio" title={t('myNodes')} body={t('myNodesBody')} action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={!visibleNodes.length || exportConnections.isPending} onClick={downloadConnections}><Download size={15} />{exportConnections.isPending ? 'Preparing…' : 'Download'}</Button><Button variant="danger" disabled={!recreateNodeTotal || recreateAll.isPending} onClick={requestRecreateAll} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${recreateNodeTotal})`}</Button></div>} />
+        {!!activeOrders.length && <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{activeOrders.map(order => <div key={order.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[#dbe7e9] bg-white px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-bold">Order #{order.id} · {order.nodeCount} nodes</p><p className="mt-1 text-xs text-slate-500">Expires {date(order.expiresAt)}</p></div><Button variant="outline" className="min-h-8 shrink-0 px-3 text-xs" onClick={() => { setExtendingOrder(order); setExtensionDays(1); }}>Extend</Button></div>)}</div>}
         <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!visibleNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
       </section>
 
@@ -1057,7 +1099,7 @@ function ClientPortalPage() {
 
       <section id="orders" className="scroll-mt-24 pt-16 pb-12"><SectionTitle eyebrow={t('accountHistory')} title={t('recentOrders')} body={t('ordersBody')} /><State loading={orders.isLoading} error={orders.isError} onRetry={() => orders.refetch()} empty={!orders.data?.length}><OrdersTable orders={(orders.data || []).slice(0, 8)} /></State></section>
     </main>
-
+    {extendingOrder && <Modal title={`Extend order #${extendingOrder.id}`} onClose={() => setExtendingOrder(null)}><p className="text-sm leading-6 text-slate-500">Extend all {extendingOrder.nodeCount} current node{extendingOrder.nodeCount === 1 ? '' : 's'} in this order. Payment is charged from your Credit balance.</p><label className="mt-5 block text-sm font-bold">Additional days<select className="mt-2 block w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={extensionDays} onChange={event => setExtensionDays(Number(event.target.value))}>{[1, 3, 7, 15, 30].map(days => <option key={days} value={days}>{days} day{days === 1 ? '' : 's'}</option>)}</select></label><div className="mt-6 flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setExtendingOrder(null)}>Cancel</Button><Button className="flex-1" disabled={extendOrder.isPending} onClick={submitExtension}>{extendOrder.isPending ? 'Extending…' : 'Pay & extend'}</Button></div></Modal>}
   </div>;
 }
 
@@ -1151,7 +1193,7 @@ function RouterViews() {
 }
 
 function App() {
-  return <WouterRouter base={basePath}><QueryClientProvider client={queryClient}><AuthProvider><TooltipProvider><AuthCacheInvalidator /><RouterViews /><Toaster /></TooltipProvider></AuthProvider></QueryClientProvider></WouterRouter>;
+  return <WouterRouter base={basePath}><QueryClientProvider client={queryClient}><AuthProvider><TooltipProvider delayDuration={0}><AuthCacheInvalidator /><RouterViews /><Toaster /></TooltipProvider></AuthProvider></QueryClientProvider></WouterRouter>;
 }
 
 export default App;

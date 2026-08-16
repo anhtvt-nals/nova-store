@@ -79,7 +79,7 @@ export interface Order {
   nodeCount: number;
   rentalDays: number;
   status: OrderStatus;
-  paymentMethod: 'bank_transfer' | 'crypto';
+  paymentMethod: 'bank_transfer' | 'crypto' | 'credit';
   createdAt: string;
   activatedAt: string | null;
   expiresAt: string | null;
@@ -97,6 +97,7 @@ export interface User {
   status: 'active' | 'suspended';
   isTrial?: boolean;
   planName: string;
+  usage?: { requests: number; successful: number; today: number };
   temporaryPassword?: string;
 }
 export interface SandboxKey {
@@ -157,6 +158,7 @@ export interface OrderQuote {
   canFulfill: boolean;
 }
 export interface CreditBalance { balance: number; }
+export interface ProxyConnectionExport { filename: string; content: string; count: number; }
 export interface Category {
   id: number;
   slug: string;
@@ -465,6 +467,12 @@ export function useCreditWallets(config?: QueryConfig<CreditWallet[]>) {
 export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'credit' } }>) {
   return useMutation({ mutationFn: ({ data }) => request<Order>('/orders', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
+export function useExtendOrder(options?: MutationConfig<Order, { id: number; data: { rentalDays: number } }>) {
+  return useMutation({ mutationFn: ({ id, data }) => request<Order>(`/orders/${id}/extend`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useExportProxyConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
+  return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export', getAccessToken), ...options });
+}
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request(`/client/proxy/nodes/${id}/restart`, getAccessToken, { method: 'POST' }), ...options });
 }
@@ -533,4 +541,7 @@ export function useUpdateGeneralSettings(options?: MutationConfig<GeneralSetting
 }
 export function useAdjustCredit(options?: MutationConfig<{ profileId: number; balance: number }, { id: number; data: { amount: number; note?: string } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<{ profileId: number; balance: number }>(`/admin/credits/${id}/adjust`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useAddCreditTopUp(options?: MutationConfig<{ profileId: number; balance: number }, { id: number; data: { amount: number; currency: 'USD' | 'IDR'; note?: string } }>) {
+  return useMutation({ mutationFn: ({ id, data }) => request<{ profileId: number; balance: number }>(`/admin/credits/${id}/top-up`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }

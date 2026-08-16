@@ -12,3 +12,7 @@ export class QuoteOrderDto {
   @IsInt() @Min(1) @Max(100) nodeCount: number;
   @IsInt() @Min(1) @Max(365) rentalDays: number;
 }
+
+export class ExtendOrderDto {
+  @IsInt() @Min(1) @Max(30) rentalDays: number;
+}
