@@ -59,8 +59,9 @@ function parseKey(value) {
   }
   return { workspace, apiKey };
 }
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`;
+function nodeEvalCommand(source) {
+  const encoded = Buffer.from(source).toString('base64');
+  return `node -e "eval(Buffer.from('${encoded}', 'base64').toString())"`;
 }
 
 async function blaxel(method, path, body) {
@@ -182,8 +183,7 @@ try {
   sandboxUrl = sandbox.metadata.url;
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
   await exec(sandboxUrl, 'install-gost', install, {}, true, 90);
-  const egressCheck = "fetch('https://api.ipify.org').then(response=>{if(!response.ok)throw new Error('HTTP '+response.status);return response.text()}).then(ip=>console.log(ip.trim())).catch(error=>{console.error('ERROR '+error.message);process.exit(1)})";
-  const egress = await exec(sandboxUrl, 'check-egress-ip', `node -e ${shellQuote(egressCheck)}`, {}, true, 15);
+  const egress = await exec(sandboxUrl, 'check-egress-ip', 'curl -4 -fsS --connect-timeout 5 https://api.ipify.org', {}, true, 15);
   const egressOutput = [egress?.logs, egress?.stdout].filter(Boolean).join('\n').trim();
   if (egressOutput) process.stdout.write(`[blaxel-test] Sandbox egress IP: ${egressOutput}\n`);
   const rendezvousCheck = [
@@ -197,7 +197,7 @@ try {
     "socket.on('timeout',()=>{console.error('TIMEOUT '+host+':'+port+' after '+(Date.now()-started)+'ms');process.exit(1)});",
     "socket.on('error',error=>{console.error('ERROR '+(error.code||'UNKNOWN')+' '+error.message);process.exit(1)});",
   ].join('');
-  await exec(sandboxUrl, 'check-rendezvous', `node -e ${shellQuote(rendezvousCheck)}`, { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
+  await exec(sandboxUrl, 'check-rendezvous', nodeEvalCommand(rendezvousCheck), { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
   const query = gostQuery();
   await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
