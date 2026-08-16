@@ -214,7 +214,8 @@ try {
   }, false);
   await waitForProxy();
   process.stdout.write(`\n[blaxel-test] SOCKS5 ready: socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}\n[blaxel-test] Press Ctrl+C to delete the sandbox and release port ${TEST_PORT}.\n`);
-  await new Promise(() => {});
+  // Keep Node's event loop alive without an unresolved top-level await warning.
+  await new Promise(() => { setInterval(() => {}, 60_000); });
 } catch (error) {
   process.stderr.write(`[blaxel-test] ${error instanceof Error ? error.message : error}\n`);
   await diagnose();
