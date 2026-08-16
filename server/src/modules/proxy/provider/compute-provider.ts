@@ -51,6 +51,8 @@ export interface ProvisionNodeInput {
     bandwidthIn: string | null;
     bandwidthOut: string | null;
     maxConnections: number | null;
+    usageObserverUrl?: string;
+    usageObserverToken?: string;
   };
 }
 

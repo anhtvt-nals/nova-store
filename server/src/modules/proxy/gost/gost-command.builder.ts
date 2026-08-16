@@ -11,7 +11,36 @@ export class GostCommandBuilder {
     return `cd /tmp && (${downloads}) && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
   }
 
-  localSocks(input: ProvisionNodeInput) {
+  localSocks(input: ProvisionNodeInput): { command: string; envs: Record<string, string> } {
+    if (input.gost.usageObserverUrl) {
+      const service: Record<string, unknown> = {
+        name: 'nodenesia-socks',
+        addr: `127.0.0.1:${input.gost.localPort}`,
+        handler: {
+          type: 'socks5',
+          auth: { username: input.gost.socksUsername, password: input.gost.socksPassword },
+          observer: 'usage-observer',
+          metadata: { 'observer.period': '5s', 'observer.resetTraffic': false },
+        },
+        listener: { type: 'tcp' },
+      };
+      const config: Record<string, unknown> = {
+        services: [service],
+        observers: [{ name: 'usage-observer', plugin: { type: 'http', addr: input.gost.usageObserverUrl, timeout: '5s' } }],
+      };
+      if (input.gost.bandwidthIn || input.gost.bandwidthOut) {
+        service.limiter = 'node-bandwidth';
+        config.limiters = [{ name: 'node-bandwidth', limits: [`$ ${input.gost.bandwidthIn || '0'} ${input.gost.bandwidthOut || '0'}`] }];
+      }
+      if (input.gost.maxConnections) {
+        service.climiter = 'node-connections';
+        config.climiters = [{ name: 'node-connections', limits: [`$ ${input.gost.maxConnections}`] }];
+      }
+      return {
+        command: 'printf %s "$GOST_CONFIG_B64" | base64 -d > /tmp/nodenesia-socks.json; while true; do /tmp/gost -C /tmp/nodenesia-socks.json >> /tmp/gost-socks.log 2>&1; sleep 1; done',
+        envs: { GOST_CONFIG_B64: Buffer.from(JSON.stringify(config)).toString('base64') },
+      };
+    }
     return {
       command: 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done',
       envs: {

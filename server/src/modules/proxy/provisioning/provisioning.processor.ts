@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import os from 'node:os';
+import { createHmac } from 'node:crypto';
 import type { ProviderInstance } from '../provider/compute-provider';
 import { ProviderAccountDisabledError } from '../provider/compute-provider';
 import { ProviderRegistry } from '../provider/provider.registry';
@@ -249,6 +250,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           bandwidthIn: this.bandwidthLimit('GOST_NODE_BANDWIDTH_IN'),
           bandwidthOut: this.bandwidthLimit('GOST_NODE_BANDWIDTH_OUT'),
           maxConnections: this.maxConnections(),
+          ...this.usageObserver(context.nodeId),
         },
       });
 
@@ -484,6 +486,17 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       throw new Error('GOST_NODE_MAX_CONNECTIONS must be a non-negative integer');
     }
     return value > 0 ? value : null;
+  }
+
+  private usageObserver(nodeId: number) {
+    const url = String(this.config.get('PROXY_USAGE_OBSERVER_URL') || '').replace(/\/$/, '');
+    const secret = String(this.config.get('PROXY_USAGE_OBSERVER_SECRET') || '');
+    if (!url && !secret) return {};
+    if (!/^https:\/\//.test(url) || secret.length < 32) {
+      throw new Error('PROXY_USAGE_OBSERVER_URL must be HTTPS and PROXY_USAGE_OBSERVER_SECRET must contain at least 32 characters');
+    }
+    const token = createHmac('sha256', secret).update(`proxy-usage:${nodeId}`).digest('hex');
+    return { usageObserverUrl: `${url}/${nodeId}?token=${token}`, usageObserverToken: token };
   }
 
   private provisioningLockSeconds() {

@@ -24,6 +24,17 @@ npm run build
 
 Health check: `GET /api/health`. Public catalog endpoints are `GET /api/catalog/plans` and `GET /api/catalog/resources`; all other endpoints require a Supabase access token. Admin endpoints additionally require `profiles.role = 'admin'`.
 
+## Proxy usage telemetry
+
+Apply `202608160041_proxy_usage_observer.sql`, then configure a public HTTPS callback for sandbox observers:
+
+```env
+PROXY_USAGE_OBSERVER_URL=https://nodenesia.id/api/internal/proxy-usage
+PROXY_USAGE_OBSERVER_SECRET=<a new random secret of at least 32 characters>
+```
+
+Newly provisioned E2B, Runloop, and Blaxel nodes run a local GOST handler observer every five seconds. The observer reports cumulative connection and byte counters through a node-scoped HMAC URL; Nest accepts only valid tokens and stores the positive delta atomically, so retries do not double-count. Existing nodes must be recreated/rotated once after deployment before they begin reporting.
+
 Public registration is intentionally unavailable. `/sign-up` redirects to `/sign-in`. An admin creates a customer with name, email, and a temporary password from the Users page and communicates those credentials securely to the customer.
 
 Migration `202608140007_security_hardening.sql` must be applied after the provisioning migration. It removes email profile takeover, expires pending reservations after 30 minutes, limits each profile to three pending order groups, reserves resources throughout provisioning, prevents duplicate live tunnel endpoints, enforces provider concurrency in Postgres, and adds renewable provisioning leases.

@@ -121,6 +121,8 @@ export interface ClientOverview {
   displayName: string;
   activeNodes: number;
   requestsToday: number;
+  totalRequests: number;
+  totalBandwidthBytes: number;
   successRate: number;
   nextRotationAt: string | null;
   activeOrder: Order | null;

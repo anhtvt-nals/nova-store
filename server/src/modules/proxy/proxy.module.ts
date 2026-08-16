@@ -15,16 +15,19 @@ import { ProxyEventsService } from './proxy-events.service';
 import { ProxyController } from './proxy.controller';
 import { ProxyService } from './proxy.service';
 import { GithubRunnersController } from './github-runners.controller';
+import { ProxyUsageController } from './proxy-usage.controller';
+import { ProxyUsageService } from './proxy-usage.service';
 
 @Module({
   // External workers are not accepted over HTTP. Provisioning runs inside this
   // module and writes through service-role RPCs with job ownership checks.
-  controllers: [ProxyController, GithubRunnersController],
+  controllers: [ProxyController, GithubRunnersController, ProxyUsageController],
   providers: [
     ProxyService,
     ProxyEventsService,
     ProxySecretService,
     ProxyCredentialService,
+    ProxyUsageService,
     GostCommandBuilder,
     SocksHealthService,
     E2bProvider,
