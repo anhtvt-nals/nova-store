@@ -39,20 +39,50 @@ export class StaticGostService {
 
   async upsertOrder(nodes: StaticGostNode[]) {
     if (!nodes.length) return;
-    for (const node of nodes) await this.upsertNode(node);
+    // GOST applies dynamic chain configuration asynchronously. Creating a
+    // service in the same turn can therefore fail with "chain ... not found".
+    // Build and verify all chains first, then attach listeners.
+    for (const node of nodes) await this.upsertChain(node);
+    for (const node of nodes) await this.waitForChain(this.chainName(node.id));
+    for (const node of nodes) await this.upsertService(node);
   }
 
   async upsertNode(node: StaticGostNode) {
+    await this.upsertChain(node);
+    await this.waitForChain(this.chainName(node.id));
+    await this.upsertService(node);
+  }
+
+  private async upsertChain(node: StaticGostNode) {
     const chainName = this.chainName(node.id);
     await this.put(`/chains/${chainName}`, {
       name: chainName,
       hops: [{ name: 'upstream', nodes: [{ name: 'residential', addr: this.address(node.host, node.upstreamPort),
         connector: { type: 'socks5', auth: { username: node.upstreamUsername, password: node.upstreamPassword } }, dialer: { type: 'tcp' } }] }],
     }, true);
+  }
+
+  private async upsertService(node: StaticGostNode) {
+    const chainName = this.chainName(node.id);
     await this.put(`/services/${node.serviceName}`, {
       name: node.serviceName, addr: `:${node.port}`, limiter: 'static-bandwidth', climiter: 'static-connections', rlimiter: 'static-requests',
       handler: { type: 'socks5', auth: { username: node.username, password: node.password }, chain: chainName }, listener: { type: 'tcp' },
     }, true);
+  }
+
+  private async waitForChain(chainName: string) {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await this.request(`/chains/${chainName}`);
+        return;
+      } catch (error: any) {
+        lastError = error;
+        if (error?.status !== 404 || attempt === 4) throw error;
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+      }
+    }
+    throw lastError;
   }
 
   async removeOrder(orderId: number, nodes: Array<{ id: number; serviceName: string }>) {
@@ -84,7 +114,9 @@ export class StaticGostService {
   private async put(path: string, body: unknown, allowCreate: boolean) {
     try { await this.request(path, { method: 'PUT', body: JSON.stringify(body) }); }
     catch (error: any) {
-      if (allowCreate && error?.status === 404) {
+      // GOST 3.2.x returns either HTTP 404 or an API error whose message is
+      // "<object> ... not found", depending on the API build.
+      if (allowCreate && (error?.status === 404 || /\bnot found\b/i.test(String(error?.message)))) {
         const base = path.replace(/^\/(services|chains|quotas)\/[^/]+$/, '/$1');
         await this.request(base, { method: 'POST', body: JSON.stringify(body) });
         return;
