@@ -18,6 +18,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   private readonly usagePollMs: number;
   private timer?: NodeJS.Timeout;
   private reconciling = false;
+  private readonly repairAttemptAt = new Map<number, number>();
 
   constructor(
     private readonly db: DatabaseService,
@@ -74,9 +75,11 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     const orderId = Number(result.data);
     try { await this.provisionOrder(orderId); }
     catch (error: any) {
-      await this.db.client.from('static_residential_orders').update({ status: 'suspended', updated_at: new Date().toISOString() }).eq('id', orderId);
+      // Keep the allocated order active. The reconciler will provision it as
+      // soon as the loopback control plane recovers; suspending here stranded
+      // paid orders and their five assigned upstreams indefinitely.
       this.logger.error(`Unable to provision static residential order ${orderId}: ${error?.message || error}`);
-      throw new BadRequestException('Order was created but the static proxy control plane is unavailable. Contact support with order #' + orderId);
+      throw new BadRequestException(`Order #${orderId} is pending while the proxy control plane reconnects. Do not place another order; it will retry automatically.`);
     }
     return (await this.listForUser(profileId)).find(order => order.id === orderId);
   }
@@ -142,6 +145,19 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
         const nodes = order.static_residential_nodes || [];
         if (order.status === 'active' && new Date(order.expires_at) <= new Date()) { await this.stopOrder(order.id, nodes, 'expired'); continue; }
         if (order.status !== 'active') continue;
+        if (nodes.some((node: any) => !usage.has(node.service_name))) {
+          const lastAttempt = this.repairAttemptAt.get(order.id) || 0;
+          if (Date.now() - lastAttempt >= 10_000) {
+            this.repairAttemptAt.set(order.id, Date.now());
+            try {
+              await this.provisionOrder(order.id);
+              this.logger.log(`Restored static residential services for order ${order.id}`);
+            } catch (error: any) {
+              this.logger.warn(`Static residential order ${order.id} is waiting for control plane recovery: ${error?.message || error}`);
+            }
+          }
+          continue;
+        }
         let delta = 0;
         for (const node of nodes) {
           const observed = usage.get(node.service_name) || 0;
