@@ -273,13 +273,14 @@ export class AdminService {
     const provider = await this.db.client.from('proxy_providers').select('id,code').eq('id', providerId).maybeSingle();
     if (!this.db.unwrap(provider, 'Unable to validate provider')) throw new NotFoundException('Provider not found');
     const storedSecret = dto.secret.trim();
+    const blaxelWorkspace = provider.data?.code === 'blaxel' ? this.blaxelWorkspace(storedSecret) : null;
     const githubOwner = provider.data?.code === 'github' ? this.githubOwner(storedSecret) : null;
     if (githubOwner) await this.ensureGithubSandboxRepository(githubOwner, storedSecret.slice(storedSecret.indexOf('|') + 1));
     const encrypted = this.encryptProviderSecret(storedSecret);
     const result = await this.db.client.from('provider_api_keys').insert({
       provider_id: providerId,
       label: dto.label,
-      key_prefix: githubOwner ? `${githubOwner}|` : storedSecret.slice(0, 4),
+      key_prefix: githubOwner ? `${githubOwner}|` : blaxelWorkspace ? `${blaxelWorkspace}|` : storedSecret.slice(0, 4),
       key_last4: storedSecret.slice(-4),
       ...encrypted,
     }).select('id,provider_id,label,key_prefix,key_last4,status,created_at').single();
@@ -298,6 +299,19 @@ export class AdminService {
       throw new BadRequestException('GitHub provider secret must use a valid owner and API key');
     }
     return owner;
+  }
+
+  private blaxelWorkspace(secret: string) {
+    const separator = secret.indexOf('|');
+    if (separator < 1 || separator !== secret.lastIndexOf('|')) {
+      throw new BadRequestException('Blaxel provider secret must use BLAXEL_WORKSPACE|BLAXEL_API_KEY');
+    }
+    const workspace = secret.slice(0, separator).trim();
+    const apiKey = secret.slice(separator + 1).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/.test(workspace) || apiKey.length < 8) {
+      throw new BadRequestException('Blaxel provider secret must use a valid workspace and API key');
+    }
+    return workspace;
   }
 
   private async ensureGithubSandboxRepository(owner: string, apiKey: string) {

@@ -221,7 +221,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         orderId: context.orderId,
         providerApiKeyId: capacity.apiKeyId,
         providerApiKey,
-        template: String(providerConfig.metadata.template || (providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
+        template: String(providerConfig.metadata.template || (providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : providerDriver === 'blaxel' ? this.config.get('BLAXEL_IMAGE') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
         timeoutMs: ttlMinutes * 60000,
         expiresAt: sandboxExpiresAt,
         metadata: { service: 'socks5' },

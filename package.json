@@ -16,6 +16,7 @@
     "clean:test-orders": "node scripts/clean-test-orders.mjs",
     "clean:test-runtime": "node scripts/clean-test-orders.mjs",
     "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs",
+    "test:blaxel-gost": "node scripts/test-blaxel-gost.mjs",
     "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
     "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs",
     "deploy:redeploy": "bash scripts/redeploy-production.sh"
