@@ -63,4 +63,64 @@ export class SocksHealthService {
     }
     throw new Error(`Previous SOCKS5 endpoint ${host}:${port} did not shut down`);
   }
+
+  /** Best-effort egress lookup through the ready SOCKS5 endpoint. */
+  egressIp(host: string, port: number, username: string, password: string, timeoutMs = 8000): Promise<string | null> {
+    return new Promise(resolve => {
+      const socket = net.createConnection({ host, port });
+      let settled = false;
+      let deadline: NodeJS.Timeout | undefined;
+      let buffer = Buffer.alloc(0);
+      let stage: 'greeting' | 'auth' | 'connect' | 'http' = 'greeting';
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        socket.destroy();
+        resolve(value);
+      };
+      const parseIp = (response: Buffer) => {
+        const body = response.toString('utf8').split('\r\n\r\n').slice(1).join('\r\n\r\n').trim();
+        return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(body) || /^[0-9a-f:]+$/i.test(body) ? body : null;
+      };
+      deadline = setTimeout(() => finish(null), timeoutMs);
+      socket.setTimeout(timeoutMs, () => finish(null));
+      socket.on('error', () => finish(null));
+      socket.on('connect', () => socket.write(Buffer.from([0x05, 0x01, 0x02])));
+      socket.on('data', chunk => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (stage === 'greeting' && buffer.length >= 2) {
+          if (buffer[0] !== 0x05 || buffer[1] !== 0x02) return finish(null);
+          buffer = buffer.subarray(2);
+          const user = Buffer.from(username);
+          const pass = Buffer.from(password);
+          if (user.length > 255 || pass.length > 255) return finish(null);
+          socket.write(Buffer.concat([Buffer.from([0x01, user.length]), user, Buffer.from([pass.length]), pass]));
+          stage = 'auth';
+        }
+        if (stage === 'auth' && buffer.length >= 2) {
+          if (buffer[1] !== 0x00) return finish(null);
+          buffer = buffer.subarray(2);
+          const domain = Buffer.from('ifconfig.me');
+          socket.write(Buffer.concat([Buffer.from([0x05, 0x01, 0x00, 0x03, domain.length]), domain, Buffer.from([0x00, 0x50])]));
+          stage = 'connect';
+        }
+        if (stage === 'connect') {
+          if (buffer.length < 5) return;
+          if (buffer[0] !== 0x05 || buffer[1] !== 0x00) return finish(null);
+          const addressLength = buffer[3] === 0x01 ? 4 : buffer[3] === 0x04 ? 16 : buffer[3] === 0x03 ? buffer[4] + 1 : 0;
+          const replyLength = 4 + addressLength + 2;
+          if (!addressLength || buffer.length < replyLength) return finish(null);
+          buffer = buffer.subarray(replyLength);
+          socket.write('GET /ip HTTP/1.1\r\nHost: ifconfig.me\r\nConnection: close\r\nUser-Agent: Nodenesia/1.0\r\n\r\n');
+          stage = 'http';
+        }
+        if (stage === 'http') {
+          const ip = parseIp(buffer);
+          if (ip) finish(ip);
+        }
+      });
+      socket.on('end', () => finish(parseIp(buffer)));
+    });
+  }
 }

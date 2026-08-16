@@ -283,12 +283,10 @@ function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode 
   const restart = useRestartProxyNode();
   const orderIsActive = order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date());
   const canRestart = orderIsActive && ['online', 'degraded', 'offline', 'error'].includes(node.status);
-  const canLoadConnection = order.status === 'active'
+  const canShowConnection = order.status === 'active'
     && (!order.expiresAt || new Date(order.expiresAt) > new Date())
-    && ['online', 'rotating', 'degraded'].includes(node.status);
-  const connection = useGetOrderConnection(order.id, node.id, {
-    query: { enabled: canLoadConnection, queryKey: getGetOrderConnectionQueryKey(order.id, node.id) },
-  });
+    && ['online', 'rotating', 'degraded'].includes(node.status)
+    && !!node.host && !!node.port && !!node.connection;
   const requestRestart = () => {
     if (!canRestart || !window.confirm(`Restart node ${node.id}? The proxy will be temporarily unavailable.`)) return;
     restart.mutate({ id: node.id }, {
@@ -296,8 +294,15 @@ function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode 
       onError: error => window.alert(error.message),
     });
   };
-  if (!canLoadConnection) return <ProxyNodeStatusCard node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;
-  return <State loading={connection.isLoading} error={connection.isError} onRetry={() => connection.refetch()}>{connection.data && <CompactNodeCard order={order} connection={connection.data} node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />}</State>;
+  if (!canShowConnection || !node.connection || !node.host || !node.port) return <ProxyNodeStatusCard node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;
+  return <CompactNodeCard order={order} connection={{
+    host: node.host,
+    port: node.port,
+    username: node.connection.username,
+    password: node.connection.password,
+    protocol: node.connection.protocol,
+    nextRotationAt: node.nextRotationAt || '',
+  }} node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;
 }
 
 function ProxyNodeStatusCard({ node, onRestart, restarting }: { node: RuntimeProxyNode; onRestart?: () => void; restarting?: boolean }) {
@@ -771,7 +776,7 @@ function AdminCreditsPage() {
     if (!selected || !note.trim() || credits <= 0) return;
     topUp.mutate({ id: selected.id, data: { amount: numericAmount, currency, note: note.trim() } }, { onSuccess: () => { setSelected(null); void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }); }, onError: error => window.alert(error.message) });
   };
-  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual top-ups are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_auto] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span /></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_auto] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge></div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><div className="flex justify-end gap-2"><IconActionButton label="Add credit" onClick={() => { setSelected(wallet); setAmount(''); setCurrency('USD'); setNote('Manual credit top-up'); }} disabled={topUp.isPending}><Plus size={15} /></IconActionButton>{wallet.isTrial && <IconActionButton label="Promote to regular account" onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })} disabled={updateUser.isPending}><Power size={15} /></IconActionButton>}</div></div>)}</div></State>{selected && <Modal title={`Add credit · ${selected.name}`} onClose={() => setSelected(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">Enter USD or IDR to calculate the Credit top-up.</p><div className="grid grid-cols-[1fr_120px] gap-3"><label className="text-sm font-bold">Amount<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Currency<select className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={currency} onChange={event => setCurrency(event.target.value as 'USD' | 'IDR')}><option>USD</option><option>IDR</option></select></label></div><div className="rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-4 py-3"><p className="text-xs text-[#13716e]">Credit to add</p><p className="mono mt-1 text-xl font-extrabold text-[#13716e]">{credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} cr</p></div><label className="text-sm font-bold">Audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={note} onChange={event => setNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={topUp.isPending || credits <= 0 || !note.trim()} onClick={addCredit}>{topUp.isPending ? 'Adding…' : 'Add credit'}</Button></div></div></Modal>}</PageLayout>;
+  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual top-ups are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_88px] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span className="text-right">Actions</span></div>{wallets.data?.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_88px] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge></div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><div className="flex w-[88px] justify-end gap-2"><IconActionButton label="Add credit" onClick={() => { setSelected(wallet); setAmount(''); setCurrency('USD'); setNote('Manual credit top-up'); }} disabled={topUp.isPending}><Plus size={15} /></IconActionButton>{wallet.isTrial && <IconActionButton label="Promote to regular account" onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })} disabled={updateUser.isPending}><Power size={15} /></IconActionButton>}</div></div>)}</div></State>{selected && <Modal title={`Add credit · ${selected.name}`} onClose={() => setSelected(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">Enter USD or IDR to calculate the Credit top-up.</p><div className="grid grid-cols-[1fr_120px] gap-3"><label className="text-sm font-bold">Amount<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Currency<select className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={currency} onChange={event => setCurrency(event.target.value as 'USD' | 'IDR')}><option>USD</option><option>IDR</option></select></label></div><div className="rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-4 py-3"><p className="text-xs text-[#13716e]">Credit to add</p><p className="mono mt-1 text-xl font-extrabold text-[#13716e]">{credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} cr</p></div><label className="text-sm font-bold">Audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={note} onChange={event => setNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={topUp.isPending || credits <= 0 || !note.trim()} onClick={addCredit}>{topUp.isPending ? 'Adding…' : 'Add credit'}</Button></div></div></Modal>}</PageLayout>;
 }
 
 function ClientHeader({ active = 'services' }: { active?: 'services' | 'proxy' }) {
@@ -1037,11 +1042,6 @@ function ClientPortalPage() {
     if (event.type.startsWith('proxy.node.')) {
       void qc.invalidateQueries({ queryKey: getGetClientOverviewQueryKey() });
       void qc.invalidateQueries({ queryKey: getListClientOrdersQueryKey() });
-      const orderId = Number(event.data.orderId);
-      const nodeId = Number(event.data.nodeId);
-      if (Number.isSafeInteger(orderId) && orderId > 0 && Number.isSafeInteger(nodeId) && nodeId > 0) {
-        void qc.invalidateQueries({ queryKey: getGetOrderConnectionQueryKey(orderId, nodeId) });
-      }
     }
   }), [qc]);
 

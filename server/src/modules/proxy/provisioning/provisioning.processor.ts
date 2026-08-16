@@ -266,13 +266,21 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         : replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
       await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
       await provider.activateNodeResources?.(context.nodeId);
-      const egressCountryCode = await this.resolveEgressCountry(instance.egressIp);
+      // Some providers do not return an egress address. Resolve it through
+      // the ready SOCKS endpoint instead of leaving country/IP empty.
+      const egressIp = instance.egressIp || await this.health.egressIp(
+        endpoint.publicHost,
+        endpoint.tunnelPort,
+        accountCredential.username,
+        accountCredential.password,
+      );
+      const egressCountryCode = await this.resolveEgressCountry(egressIp);
       if (replacing) {
         await this.repository.completeReplacement({
           jobId: job.id,
           workerId: this.workerId,
           externalInstanceId: instance.externalInstanceId,
-          egressIp: instance.egressIp || null,
+          egressIp: egressIp || null,
           egressCountryCode,
           nextRotationAt,
         });
@@ -281,7 +289,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           jobId: job.id,
           workerId: this.workerId,
           externalInstanceId: instance.externalInstanceId,
-          egressIp: instance.egressIp || null,
+          egressIp: egressIp || null,
           egressCountryCode,
           publicHost: endpoint.publicHost,
           tunnelPort: endpoint.tunnelPort,
@@ -307,7 +315,11 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       // A banned/suspended API key was just disabled, so the next attempt
       // can pick another active key immediately instead of waiting out the
       // normal exponential backoff.
-      const delaySeconds = accountDisabled ? 5 : Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
+      const delaySeconds = accountDisabled
+        ? 5
+        : job.action === 'replace'
+          ? this.rotationRetryDelaySeconds(job.attempts)
+          : Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
       const recordFailure = job.action === 'terminate'
         ? this.repository.failTermination(job.id, this.workerId, message, delaySeconds)
         : job.action === 'replace'
@@ -409,19 +421,46 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
    */
   private async resolveEgressCountry(egressIp: string | null | undefined): Promise<string | null> {
     if (!egressIp) return null;
+    const sources: Array<() => Promise<string | null>> = [
+      async () => {
+        const response = await this.fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(egressIp)}/country/`);
+        return response?.trim().toUpperCase() || null;
+      },
+      async () => {
+        const response = await this.fetchWithTimeout(`https://api.country.is/${encodeURIComponent(egressIp)}`, true);
+        return response?.country?.trim().toUpperCase() || null;
+      },
+    ];
+    for (const source of sources) {
+      try {
+        const code = await source();
+        if (code && /^[A-Z]{2}$/.test(code)) return code;
+      } catch {
+        // Try the next provider; geo lookup must not fail provisioning.
+      }
+    }
+    this.logger.warn(`Unable to resolve egress country for ${egressIp}`);
+    return null;
+  }
+
+  private async fetchWithTimeout(url: string, json = false): Promise<any> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
+    const timeout = setTimeout(() => controller.abort(), 2000);
     try {
-      const response = await fetch(`https://ipapi.co/${encodeURIComponent(egressIp)}/country/`, { signal: controller.signal });
+      const response = await fetch(url, { signal: controller.signal, headers: { accept: json ? 'application/json' : 'text/plain' } });
       if (!response.ok) return null;
-      const code = (await response.text()).trim().toUpperCase();
-      return /^[A-Z]{2}$/.test(code) ? code : null;
-    } catch (error) {
-      this.logger.warn(`Unable to resolve egress country for ${egressIp}: ${error instanceof Error ? error.message : error}`);
-      return null;
+      return json ? response.json() : response.text();
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private rotationRetryDelaySeconds(attempts: number) {
+    const configuredBase = Number(this.config.get('PROXY_ROTATION_RETRY_BASE_SECONDS') || 5);
+    const base = Math.max(2, Math.min(60, Number.isFinite(configuredBase) ? configuredBase : 5));
+    const configuredMax = Number(this.config.get('PROXY_ROTATION_RETRY_MAX_SECONDS') || 30);
+    const max = Math.max(base, Math.min(300, Number.isFinite(configuredMax) ? configuredMax : 30));
+    return Math.min(max, base * 2 ** Math.max(0, attempts - 1));
   }
 
   private tunnelTransport(key = 'GOST_TUNNEL_TRANSPORT', fallback = 'tcp'): 'tcp' | 'ws' | 'wss' {
