@@ -118,25 +118,37 @@ async function exec(sandboxUrl, name, command, env = {}, waitForCompletion = fal
   }
 }
 
-function waitForProxy(timeoutMs = 120000) {
+async function waitForProxy(timeoutMs = 120000) {
   const deadline = Date.now() + timeoutMs;
-  return new Promise((resolve, reject) => {
-    const attempt = () => socksAuth(publicHost, TEST_PORT, socksUsername, socksPassword, 5000)
-      .then(ok => ok ? resolve() : Date.now() >= deadline ? reject(new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`)) : setTimeout(attempt, 1000))
-      .catch(() => Date.now() >= deadline ? reject(new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`)) : setTimeout(attempt, 1000));
-    attempt();
-  });
+  while (Date.now() < deadline) {
+    if (await socksAuth(publicHost, TEST_PORT, socksUsername, socksPassword, 5000)) return;
+    await wait(1000);
+  }
+  throw new Error(`SOCKS5 endpoint ${publicHost}:${TEST_PORT} did not become reachable`);
 }
 
 function socksAuth(host, port, username, password, timeoutMs) {
   return new Promise(resolve => {
-    const socket = net.createConnection({ host, port });
+    let socket;
     let stage = 'greeting';
     let buffer = Buffer.alloc(0);
     let settled = false;
-    const finish = result => { if (!settled) { settled = true; socket.destroy(); resolve(result); } };
-    socket.setTimeout(timeoutMs, () => finish(false));
+    const deadline = setTimeout(() => finish(false), timeoutMs);
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      socket?.destroy();
+      resolve(result);
+    };
+    try {
+      socket = net.createConnection({ host, port });
+    } catch {
+      finish(false);
+      return;
+    }
     socket.on('error', () => finish(false));
+    socket.on('close', () => finish(false));
     socket.on('connect', () => socket.write(Buffer.from([0x05, 0x01, 0x02])));
     socket.on('data', chunk => {
       buffer = Buffer.concat([buffer, chunk]);
