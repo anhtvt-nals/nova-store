@@ -28,7 +28,9 @@ const socksUsername = String(process.env.BLAXEL_TEST_SOCKS_USERNAME || alphaNume
 const socksPassword = String(process.env.BLAXEL_TEST_SOCKS_PASSWORD || alphaNumeric(10));
 
 let sandboxName = '';
+let sandboxUrl = '';
 let cleaning = false;
+const keepOnFailure = process.env.BLAXEL_TEST_KEEP_ON_FAILURE === 'true';
 
 function fail(message) { throw new Error(message); }
 function required(name) {
@@ -100,6 +102,7 @@ async function exec(sandboxUrl, name, command, env = {}, waitForCompletion = fal
   if (waitForCompletion) {
     const result = await response.json();
     if (result.exitCode !== undefined && result.exitCode !== 0) throw new Error(`Blaxel sandbox process ${name} exited with ${result.exitCode}: ${(result.logs || '').slice(-500)}`);
+    return result;
   }
 }
 
@@ -149,6 +152,16 @@ async function cleanup(exitCode = 0) {
   process.exit(exitCode);
 }
 
+async function diagnose() {
+  if (!sandboxUrl) return;
+  try {
+    const result = await exec(sandboxUrl, 'diagnose-gost', 'echo "--- gost-socks ---"; tail -n 80 /tmp/gost-socks.log 2>&1 || true; echo "--- gost-tunnel ---"; tail -n 80 /tmp/gost-tunnel.log 2>&1 || true', {}, true, 20);
+    if (result?.logs) process.stderr.write(`\n[blaxel-test] GOST diagnostics:\n${result.logs.slice(-4000)}\n`);
+  } catch (error) {
+    process.stderr.write(`[blaxel-test] Could not retrieve GOST diagnostics: ${error instanceof Error ? error.message : error}\n`);
+  }
+}
+
 process.once('SIGINT', () => void cleanup(0));
 process.once('SIGTERM', () => void cleanup(0));
 process.once('uncaughtException', error => { process.stderr.write(`${error.stack || error}\n`); void cleanup(1); });
@@ -162,14 +175,16 @@ try {
     spec: { enabled: true, region, runtime: { image, memory, ttl: '1h' } },
   });
   const sandbox = await waitForDeployment(sandboxName);
+  sandboxUrl = sandbox.metadata.url;
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
-  await exec(sandbox.metadata.url, 'install-gost', install, {}, true, 90);
+  await exec(sandboxUrl, 'install-gost', install, {}, true, 90);
+  await exec(sandboxUrl, 'check-rendezvous', 'node -e "const net=require(\'net\');const socket=net.createConnection({host:process.env.TEST_HOST,port:Number(process.env.TEST_PORT)});socket.setTimeout(5000);socket.on(\'connect\',()=>process.exit(0));socket.on(\'timeout\',()=>process.exit(1));socket.on(\'error\',()=>process.exit(1));"', { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
   const query = gostQuery();
-  await exec(sandbox.metadata.url, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
+  await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
   }, false);
   const scheme = tunnelTransport === 'tcp' ? 'socks5' : `socks5+${tunnelTransport}`;
-  await exec(sandbox.metadata.url, 'gost-tunnel', 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done', {
+  await exec(sandboxUrl, 'gost-tunnel', 'while true; do /tmp/gost -L="rtcp://:${BIND_PORT}/127.0.0.1:${LOCAL_PORT}" -F="${TUNNEL_SCHEME}://${TUNNEL_USER}:${TUNNEL_PASS}@${MASTER_HOST}:${RENDEZVOUS_PORT}" >> /tmp/gost-tunnel.log 2>&1; sleep 2; done', {
     BIND_PORT: String(TEST_PORT), LOCAL_PORT: String(localPort), TUNNEL_SCHEME: scheme,
     TUNNEL_USER: encodeURIComponent(tunnelUsername), TUNNEL_PASS: encodeURIComponent(tunnelPassword), MASTER_HOST: masterHost, RENDEZVOUS_PORT: String(rendezvousPort),
   }, false);
@@ -178,6 +193,11 @@ try {
   await new Promise(() => {});
 } catch (error) {
   process.stderr.write(`[blaxel-test] ${error instanceof Error ? error.message : error}\n`);
+  await diagnose();
+  if (keepOnFailure && sandboxName) {
+    process.stderr.write(`[blaxel-test] Keeping ${sandboxName} for inspection; delete it manually in Blaxel Console.\n`);
+    process.exit(1);
+  }
   await cleanup(1);
 }
 
