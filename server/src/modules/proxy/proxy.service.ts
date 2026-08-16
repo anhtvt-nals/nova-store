@@ -9,7 +9,7 @@ export class ProxyService {
   async listForUser(profileId: number) {
     const result = await this.db.client
       .from('proxy_nodes')
-      .select('id,order_id,status,public_host,tunnel_port,egress_ip,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_message')
+      .select('id,order_id,status,public_host,tunnel_port,egress_ip,egress_country_code,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_message')
       .eq('profile_id', profileId)
       .neq('status', 'terminated')
       .order('created_at', { ascending: false });
@@ -21,6 +21,7 @@ export class ProxyService {
         host: row.public_host,
         port: row.tunnel_port,
         egressIp: row.egress_ip,
+        egressCountryCode: row.egress_country_code,
         lastHealthAt: row.last_health_at,
         lastStatusChangeAt: row.last_status_change_at,
         nextRotationAt: row.next_rotation_at,

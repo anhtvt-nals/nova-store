@@ -45,6 +45,7 @@ export interface RuntimeProxyNode {
   host: string | null;
   port: number | null;
   egressIp: string | null;
+  egressCountryCode: string | null;
   lastHealthAt: string | null;
   lastStatusChangeAt: string;
   nextRotationAt: string | null;

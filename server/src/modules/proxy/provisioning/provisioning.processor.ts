@@ -266,12 +266,14 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         : replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
       await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
       await provider.activateNodeResources?.(context.nodeId);
+      const egressCountryCode = await this.resolveEgressCountry(instance.egressIp);
       if (replacing) {
         await this.repository.completeReplacement({
           jobId: job.id,
           workerId: this.workerId,
           externalInstanceId: instance.externalInstanceId,
           egressIp: instance.egressIp || null,
+          egressCountryCode,
           nextRotationAt,
         });
       } else {
@@ -280,6 +282,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           workerId: this.workerId,
           externalInstanceId: instance.externalInstanceId,
           egressIp: instance.egressIp || null,
+          egressCountryCode,
           publicHost: endpoint.publicHost,
           tunnelPort: endpoint.tunnelPort,
           nextRotationAt,
@@ -397,6 +400,28 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
     const value = this.config.get<string>(key);
     if (!value) throw new Error(`${key} is required for proxy provisioning`);
     return value;
+  }
+
+  /**
+   * Best-effort IP -> country lookup for the sandbox's egress IP, shown next
+   * to the egress IP on the client node info. A failed/slow lookup must
+   * never fail provisioning, so any error just results in no country shown.
+   */
+  private async resolveEgressCountry(egressIp: string | null | undefined): Promise<string | null> {
+    if (!egressIp) return null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const response = await fetch(`https://ipapi.co/${encodeURIComponent(egressIp)}/country/`, { signal: controller.signal });
+      if (!response.ok) return null;
+      const code = (await response.text()).trim().toUpperCase();
+      return /^[A-Z]{2}$/.test(code) ? code : null;
+    } catch (error) {
+      this.logger.warn(`Unable to resolve egress country for ${egressIp}: ${error instanceof Error ? error.message : error}`);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private tunnelTransport(key = 'GOST_TUNNEL_TRANSPORT', fallback = 'tcp'): 'tcp' | 'ws' | 'wss' {

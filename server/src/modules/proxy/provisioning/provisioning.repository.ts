@@ -253,12 +253,13 @@ export class ProvisioningRepository {
       });
   }
 
-  async complete(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; publicHost: string; tunnelPort: number; nextRotationAt: Date }) {
+  async complete(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; egressCountryCode: string | null; publicHost: string; tunnelPort: number; nextRotationAt: Date }) {
     const result = await this.db.client.rpc('complete_proxy_provisioning', {
       target_job_id: input.jobId,
       worker_id: input.workerId,
       external_instance_id: input.externalInstanceId,
       reported_egress_ip: input.egressIp || null,
+      reported_egress_country_code: input.egressCountryCode || null,
       reported_public_host: input.publicHost,
       reported_tunnel_port: input.tunnelPort,
       reported_next_rotation_at: input.nextRotationAt.toISOString(),
@@ -266,12 +267,13 @@ export class ProvisioningRepository {
     this.db.unwrap(result, 'Unable to complete proxy provisioning');
   }
 
-  async completeReplacement(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; nextRotationAt: Date }) {
+  async completeReplacement(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; egressCountryCode: string | null; nextRotationAt: Date }) {
     const result = await this.db.client.rpc('complete_proxy_replacement', {
       target_job_id: input.jobId,
       worker_id: input.workerId,
       external_instance_id: input.externalInstanceId,
       reported_egress_ip: input.egressIp || null,
+      reported_egress_country_code: input.egressCountryCode || null,
       reported_next_rotation_at: input.nextRotationAt.toISOString(),
     });
     this.db.unwrap(result, 'Unable to complete proxy replacement');

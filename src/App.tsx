@@ -269,7 +269,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
     <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-white/10 pl-0.5 pt-2 text-[9px] leading-3.5">
       <p className="min-w-0 text-slate-500">Protocol <strong className="ml-1 text-slate-300">{connection.protocol}</strong></p>
       <p className="text-slate-500">Port <strong className="ml-1 text-slate-300">{connection.port}</strong></p>
-      <p className="min-w-0 text-slate-500">Egress <strong className="ml-1 break-all text-slate-300">{node?.egressIp || connection.host}</strong></p>
+      <p className="min-w-0 text-slate-500">Egress <strong className="ml-1 break-all text-slate-300">{node?.egressIp || connection.host}{node?.egressCountryCode && <span className="ml-1 whitespace-nowrap" title={node.egressCountryCode}>{String.fromCodePoint(...node.egressCountryCode.split('').map(char => 127397 + char.charCodeAt(0)))}</span>}</strong></p>
       <p className="text-slate-500">Reachable <strong className={cx('ml-1', reachable ? 'text-[#43cf65]' : 'text-[#ff696d]')}>{reachable ? 'OK' : 'NO'}</strong></p>
       <p className="text-slate-500">Uptime <strong className="ml-1 text-slate-300">{compactDuration(now - activatedAt)}</strong></p>
       <p className="text-slate-500">Rotation <strong className="ml-1 text-slate-300">{nextRotationAt ? compactDuration(new Date(nextRotationAt).getTime() - now) : '—'}</strong></p>
