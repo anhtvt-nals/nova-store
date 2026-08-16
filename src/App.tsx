@@ -11,7 +11,7 @@ import {
   useCreditBalance, useCurrentUser, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, useListAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
-  useAdjustCredit, useCatalogSettings, useCreditWallets, useProxySettings, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
+  useAdjustCredit, useCatalogSettings, useCreditWallets, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProxyPrice, useUpdateUser,
   getGetAdminOverviewQueryKey, getGetClientOverviewQueryKey, getGetOrderConnectionQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey, getListCategoriesQueryKey, getListClientOrdersQueryKey, getListClientProxyNodesQueryKey, getListNodesQueryKey,
   getCreditWalletsQueryKey, getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, subscribeToProxyNodeEvents,
@@ -331,23 +331,63 @@ function AdminDashboard() {
   const keys = useListSandboxKeys();
   const adminOrders = useListAdminOrders();
   const qc = useQueryClient();
-  const createUser = useCreateUser(); const updateUser = useUpdateUser(); const deleteUser = useDeleteUser();
+  const createUser = useCreateUser(); const updateUser = useUpdateUser(); const deleteUser = useDeleteUser(); const resetPassword = useResetUserPassword();
   const createKey = useCreateSandboxKey(); const deleteKey = useDeleteSandboxKey(); const updateOrder = useUpdateOrderStatus();
   const [userForm, setUserForm] = useState({ name: '', email: '' });
   const [keyLabel, setKeyLabel] = useState('');
   const [latestKey, setLatestKey] = useState('');
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [generatedPassword, setGeneratedPassword] = useState<{ email: string; password: string } | null>(null);
+  const [resettingUserId, setResettingUserId] = useState<number>();
   const refreshUsers = () => void qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
   const refreshKeys = () => void qc.invalidateQueries({ queryKey: getListSandboxKeysQueryKey() });
   const refreshOrders = () => { void qc.invalidateQueries({ queryKey: getListAdminOrdersQueryKey() }); void qc.invalidateQueries({ queryKey: getGetAdminOverviewQueryKey() }); };
   const copyText = (value: string) => { void navigator.clipboard?.writeText(value); };
-  const submitUser = () => { if (!userForm.name || !userForm.email) return; createUser.mutate({ data: userForm }, { onSuccess: () => { setUserForm({ name: '', email: '' }); refreshUsers(); } }); };
+  const submitUser = () => { if (!userForm.name || !userForm.email) return; createUser.mutate({ data: userForm }, { onSuccess: user => { setUserForm({ name: '', email: '' }); setGeneratedPassword(user.temporaryPassword ? { email: user.email, password: user.temporaryPassword } : null); refreshUsers(); } }); };
+  const resetUserPassword = (user: User) => {
+    if (!window.confirm(`Generate a new password for ${user.email}? Their current password will stop working immediately.`)) return;
+    setResettingUserId(user.id);
+    resetPassword.mutate({ id: user.id }, {
+      onSuccess: result => setGeneratedPassword({ email: user.email, password: result.temporaryPassword }),
+      onError: error => window.alert(error.message),
+      onSettled: () => setResettingUserId(undefined),
+    });
+  };
   const submitKey = () => { if (!keyLabel) return; createKey.mutate({ data: { label: keyLabel } }, { onSuccess: (created) => { setKeyLabel(''); setLatestKey(created.secret || ''); refreshKeys(); } }); };
-  return <AppShell admin><div className="shell-grid min-h-[calc(100dvh-72px)] px-5 py-8 lg:px-9"><div className="mx-auto max-w-[1420px]"><div className="mb-9"><p className="mono mb-2 text-[10px] uppercase tracking-[.2em] text-[#e4643d]">operator desk</p><h1 className="text-3xl font-extrabold tracking-[-.05em] text-[#142037] md:text-4xl">Keep the network honest.</h1><p className="mt-2 text-sm text-slate-500">Operational view across customers, keys, and manual settlement.</p></div><State loading={overview.isLoading} error={overview.isError} onRetry={() => overview.refetch()}><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Metric label="MRR" value={money(overview.data?.mrr)} detail={`${overview.data?.mrrChange ?? 0}% vs last month`} icon={Activity} tone="orange" /><Metric label="Active users" value={String(overview.data?.activeUsers ?? 0)} detail="Currently routing" icon={Users} tone="teal" /><Metric label="Active nodes" value={String(overview.data?.activeNodes ?? 0)} detail="Across US footprint" icon={Server} tone="teal" /><Metric label="Pending orders" value={String(overview.data?.pendingOrders ?? 0)} detail="Need review" icon={Layers3} tone="orange" /><Metric label="Success rate" value={`${overview.data?.successRate ?? 0}%`} detail="Network average" icon={Signal} tone="teal" /></div><div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><SectionTitle eyebrow="signal feed" title="Recent activity" /><div className="grid gap-4">{overview.data?.recentActivity?.map(item => <div key={item.id} className="flex gap-3"><span className={cx('mt-1 h-2 w-2 shrink-0 rounded-full', item.tone === 'success' ? 'bg-[#69d5d0]' : item.tone === 'warning' ? 'bg-[#f46c43]' : 'bg-slate-300')} /><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="text-sm font-bold text-[#142037]">{item.title}</p><span className="mono whitespace-nowrap text-[10px] text-slate-400">{item.time}</span></div><p className="mt-1 text-xs text-slate-500">{item.detail}</p></div></div>)}</div></div><div className="rounded-3xl bg-[#142037] p-6 text-white"><p className="mono text-[10px] uppercase tracking-[.18em] text-[#69d5d0]">operator note</p><h2 className="mt-3 text-2xl font-extrabold leading-tight tracking-[-.04em]">Make the exception visible.</h2><p className="mt-3 text-sm leading-6 text-slate-400">Pending payments stay out of the active network until you approve them. That boundary is the product.</p><div className="mt-8 flex items-center gap-3 text-sm font-bold"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f46c43]"><ShieldCheck size={17} /></span> Manual approval queue is live</div></div></div></State><div id="users" className="mt-10"><SectionTitle eyebrow="directory" title="Users" body="Create and maintain the customer records that power the client workspace." /><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h3 className="font-extrabold text-[#142037]">{editingUser ? 'Edit user' : 'Add user'}</h3><div className="mt-5 grid gap-3"><input value={editingUser?.name ?? userForm.name} onChange={e => editingUser ? setEditingUser({ ...editingUser, name: e.target.value }) : setUserForm({ ...userForm, name: e.target.value })} placeholder="Name" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]" data-testid="input-user-name" /><input value={editingUser?.email ?? userForm.email} disabled={!!editingUser} onChange={e => setUserForm({ ...userForm, email: e.target.value })} placeholder="Email" type="email" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43] disabled:opacity-50" data-testid="input-user-email" />{editingUser ? <div className="flex gap-2"><Button className="flex-1" disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: editingUser.id, data: { name: editingUser.name, status: editingUser.status } }, { onSuccess: () => { setEditingUser(null); refreshUsers(); } })}>Save changes</Button><Button variant="quiet" onClick={() => setEditingUser(null)}>Cancel</Button></div> : <Button onClick={submitUser} disabled={createUser.isPending}><Plus size={15} /> {createUser.isPending ? 'Adding…' : 'Add user'}</Button>}</div></div><UsersTable users={users.data || []} loading={users.isLoading} onEdit={setEditingUser} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refreshUsers }); }} onToggle={(user) => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refreshUsers })} /></div></div><div id="keys" className="mt-10"><SectionTitle eyebrow="developer access" title="Sandbox API keys" body="Issue scoped-looking credentials for testing and integration." /><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h3 className="font-extrabold text-[#142037]">Create a key</h3><p className="mt-2 text-sm text-slate-500">The full secret is shown once by the API.</p>{latestKey && <div className="mt-4 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] p-3"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#13716e]">Copy this key now</p><div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 break-all text-xs text-[#142037]">{latestKey}</code><button onClick={() => copyText(latestKey)} className="rounded-lg bg-white p-2 text-[#13716e]" aria-label="Copy API key"><Copy size={14} /></button></div></div>}<input value={keyLabel} onChange={e => setKeyLabel(e.target.value)} placeholder="e.g. QA crawler" className="mt-5 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]" data-testid="input-key-label" /><Button className="mt-3 w-full" disabled={createKey.isPending} onClick={submitKey}><KeyRound size={15} /> Create key</Button></div><KeysTable keys={keys.data || []} loading={keys.isLoading} onDelete={id => { if (window.confirm('Revoke this sandbox key?')) deleteKey.mutate({ id }, { onSuccess: refreshKeys }); }} /></div></div><div id="orders" className="mt-10"><SectionTitle eyebrow="settlement" title="Order approval queue" body="Review manual payments before provisioning access." /><AdminOrdersTable orders={adminOrders.data || []} loading={adminOrders.isLoading} onStatus={(id, status) => updateOrder.mutate({ id, data: { status } }, { onSuccess: refreshOrders })} /></div></div></div></AppShell>;
+  return <AppShell admin><div className="shell-grid min-h-[calc(100dvh-72px)] px-5 py-8 lg:px-9"><div className="mx-auto max-w-[1420px]"><div className="mb-9"><p className="mono mb-2 text-[10px] uppercase tracking-[.2em] text-[#e4643d]">operator desk</p><h1 className="text-3xl font-extrabold tracking-[-.05em] text-[#142037] md:text-4xl">Keep the network honest.</h1><p className="mt-2 text-sm text-slate-500">Operational view across customers, keys, and manual settlement.</p></div><State loading={overview.isLoading} error={overview.isError} onRetry={() => overview.refetch()}><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Metric label="MRR" value={money(overview.data?.mrr)} detail={`${overview.data?.mrrChange ?? 0}% vs last month`} icon={Activity} tone="orange" /><Metric label="Active users" value={String(overview.data?.activeUsers ?? 0)} detail="Currently routing" icon={Users} tone="teal" /><Metric label="Active nodes" value={String(overview.data?.activeNodes ?? 0)} detail="Across US footprint" icon={Server} tone="teal" /><Metric label="Pending orders" value={String(overview.data?.pendingOrders ?? 0)} detail="Need review" icon={Layers3} tone="orange" /><Metric label="Success rate" value={`${overview.data?.successRate ?? 0}%`} detail="Network average" icon={Signal} tone="teal" /></div><div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><SectionTitle eyebrow="signal feed" title="Recent activity" /><div className="grid gap-4">{overview.data?.recentActivity?.map(item => <div key={item.id} className="flex gap-3"><span className={cx('mt-1 h-2 w-2 shrink-0 rounded-full', item.tone === 'success' ? 'bg-[#69d5d0]' : item.tone === 'warning' ? 'bg-[#f46c43]' : 'bg-slate-300')} /><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="text-sm font-bold text-[#142037]">{item.title}</p><span className="mono whitespace-nowrap text-[10px] text-slate-400">{item.time}</span></div><p className="mt-1 text-xs text-slate-500">{item.detail}</p></div></div>)}</div></div><div className="rounded-3xl bg-[#142037] p-6 text-white"><p className="mono text-[10px] uppercase tracking-[.18em] text-[#69d5d0]">operator note</p><h2 className="mt-3 text-2xl font-extrabold leading-tight tracking-[-.04em]">Make the exception visible.</h2><p className="mt-3 text-sm leading-6 text-slate-400">Pending payments stay out of the active network until you approve them. That boundary is the product.</p><div className="mt-8 flex items-center gap-3 text-sm font-bold"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f46c43]"><ShieldCheck size={17} /></span> Manual approval queue is live</div></div></div></State><div id="users" className="mt-10"><SectionTitle eyebrow="directory" title="Users" body="Create and maintain the customer records that power the client workspace." /><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="grid gap-5">{generatedPassword && <GeneratedPasswordCard email={generatedPassword.email} password={generatedPassword.password} onDismiss={() => setGeneratedPassword(null)} />}<div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h3 className="font-extrabold text-[#142037]">{editingUser ? 'Edit user' : 'Add user'}</h3><div className="mt-5 grid gap-3"><input value={editingUser?.name ?? userForm.name} onChange={e => editingUser ? setEditingUser({ ...editingUser, name: e.target.value }) : setUserForm({ ...userForm, name: e.target.value })} placeholder="Name" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]" data-testid="input-user-name" /><input value={editingUser?.email ?? userForm.email} disabled={!!editingUser} onChange={e => setUserForm({ ...userForm, email: e.target.value })} placeholder="Email" type="email" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43] disabled:opacity-50" data-testid="input-user-email" />{editingUser ? <div className="flex gap-2"><Button className="flex-1" disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: editingUser.id, data: { name: editingUser.name, status: editingUser.status } }, { onSuccess: () => { setEditingUser(null); refreshUsers(); } })}>Save changes</Button><Button variant="quiet" onClick={() => setEditingUser(null)}>Cancel</Button></div> : <Button onClick={submitUser} disabled={createUser.isPending}><Plus size={15} /> {createUser.isPending ? 'Adding…' : 'Add user'}</Button>}</div></div></div><UsersTable users={users.data || []} loading={users.isLoading} onEdit={setEditingUser} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refreshUsers }); }} onToggle={(user) => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refreshUsers })} onResetPassword={resetUserPassword} resettingId={resettingUserId} /></div></div><div id="keys" className="mt-10">
+<SectionTitle eyebrow="developer access" title="Sandbox API keys" body="Issue scoped-looking credentials for testing and integration." /><div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h3 className="font-extrabold text-[#142037]">Create a key</h3><p className="mt-2 text-sm text-slate-500">The full secret is shown once by the API.</p>{latestKey && <div className="mt-4 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] p-3"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#13716e]">Copy this key now</p><div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 break-all text-xs text-[#142037]">{latestKey}</code><button onClick={() => copyText(latestKey)} className="rounded-lg bg-white p-2 text-[#13716e]" aria-label="Copy API key"><Copy size={14} /></button></div></div>}<input value={keyLabel} onChange={e => setKeyLabel(e.target.value)} placeholder="e.g. QA crawler" className="mt-5 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm outline-none focus:border-[#f46c43]" data-testid="input-key-label" /><Button className="mt-3 w-full" disabled={createKey.isPending} onClick={submitKey}><KeyRound size={15} /> Create key</Button></div><KeysTable keys={keys.data || []} loading={keys.isLoading} onDelete={id => { if (window.confirm('Revoke this sandbox key?')) deleteKey.mutate({ id }, { onSuccess: refreshKeys }); }} /></div></div><div id="orders" className="mt-10"><SectionTitle eyebrow="settlement" title="Order approval queue" body="Review manual payments before provisioning access." /><AdminOrdersTable orders={adminOrders.data || []} loading={adminOrders.isLoading} onStatus={(id, status) => updateOrder.mutate({ id, data: { status } }, { onSuccess: refreshOrders })} /></div></div></div></AppShell>;
 }
 
-function UsersTable({ users, loading, onEdit, onDelete, onToggle }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void }) {
-  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{users.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></div></div><div className="flex items-center gap-3"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><button onClick={() => onEdit(user)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#142037]" data-testid={`button-edit-user-${user.id}`}><MoreHorizontal size={17} /></button><button onClick={() => onToggle(user)} className="text-xs font-bold text-[#13716e]" data-testid={`button-toggle-user-${user.id}`}>{user.status === 'active' ? 'Suspend' : 'Activate'}</button><button onClick={() => onDelete(user.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" data-testid={`button-delete-user-${user.id}`}><Trash2 size={15} /></button></div></div>)}</div></State></div>;
+function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number }) {
+  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{users.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></div></div><div className="flex items-center gap-3"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><button onClick={() => onResetPassword(user)} disabled={resettingId === user.id} className="text-xs font-bold text-[#13716e] disabled:opacity-50" data-testid={`button-reset-password-${user.id}`}>{resettingId === user.id ? 'Resetting…' : 'Reset password'}</button><button onClick={() => onEdit(user)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#142037]" data-testid={`button-edit-user-${user.id}`}><MoreHorizontal size={17} /></button><button onClick={() => onToggle(user)} className="text-xs font-bold text-[#13716e]" data-testid={`button-toggle-user-${user.id}`}>{user.status === 'active' ? 'Suspend' : 'Activate'}</button><button onClick={() => onDelete(user.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" data-testid={`button-delete-user-${user.id}`}><Trash2 size={15} /></button></div></div>)}</div></State></div>;
+}
+
+function GeneratedPasswordCard({ email, password, onDismiss }: { email: string; password: string; onDismiss: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(password);
+    else {
+      const textarea = document.createElement('textarea');
+      textarea.value = password;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return <div className="rounded-2xl border border-[#f4c8a8] bg-[#fff6ef] p-4" data-testid="card-generated-password">
+    <p className="text-xs font-bold text-[#a15b2a]">Temporary password for {email}</p>
+    <p className="mt-1 text-[11px] leading-5 text-[#a15b2a]">Copy and send this password to the customer securely now — it will not be shown again.</p>
+    <div className="mt-3 flex items-center gap-2 rounded-xl border border-[#f4c8a8] bg-white px-3 py-2">
+      <code className="mono flex-1 truncate text-sm text-[#142037]" data-testid="text-generated-password">{password}</code>
+      <button onClick={() => void copy()} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#dbe7e9] text-[#13716e] hover:bg-slate-50" data-testid="button-copy-generated-password" aria-label="Copy password">{copied ? <Check size={14} /> : <Copy size={14} />}</button>
+    </div>
+    <button onClick={onDismiss} className="mt-3 text-xs font-bold text-[#13716e]" data-testid="button-dismiss-generated-password">Done, I've copied it</button>
+  </div>;
 }
 
 function KeysTable({ keys, loading, onDelete }: { keys: SandboxKey[]; loading: boolean; onDelete: (id: number) => void }) {
@@ -503,38 +543,54 @@ function AdminUsersPage() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const resetPassword = useResetUserPassword();
+  const [form, setForm] = useState({ name: '', email: '' });
   const [editing, setEditing] = useState<User | null>(null);
+  const [generated, setGenerated] = useState<{ email: string; password: string } | null>(null);
+  const [resettingId, setResettingId] = useState<number>();
   const refresh = () => void qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
   const create = () => {
-    if (!form.name || !form.email || form.password.length < 12) return;
+    if (!form.name || !form.email) return;
     createUser.mutate(
       { data: form },
       {
-        onSuccess: () => {
-          setForm({ name: '', email: '', password: '' });
+        onSuccess: user => {
+          setForm({ name: '', email: '' });
+          setGenerated(user.temporaryPassword ? { email: user.email, password: user.temporaryPassword } : null);
           refresh();
         },
         onError: error => window.alert(error.message),
       },
     );
   };
+  const resetUserPassword = (user: User) => {
+    if (!window.confirm(`Generate a new password for ${user.email}? Their current password will stop working immediately.`)) return;
+    setResettingId(user.id);
+    resetPassword.mutate(
+      { id: user.id },
+      {
+        onSuccess: result => setGenerated({ email: user.email, password: result.temporaryPassword }),
+        onError: error => window.alert(error.message),
+        onSettled: () => setResettingId(undefined),
+      },
+    );
+  };
 
   return <PageLayout admin eyebrow="directory" title="Users" body="Create customer login accounts and maintain their access.">
     <div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]">
-      <div className="rounded-3xl border border-[#dbe7e9] bg-white p-6">
-        <h2 className="font-extrabold text-[#142037]">{editing ? 'Edit user' : 'Add user'}</h2>
-        <div className="mt-5 grid gap-3">
-          <input value={editing?.name ?? form.name} onChange={event => editing ? setEditing({ ...editing, name: event.target.value }) : setForm({ ...form, name: event.target.value })} placeholder="Name" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" />
-          <input value={editing?.email ?? form.email} disabled={!!editing} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="Email" type="email" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm disabled:opacity-50" />
-          {!editing && <>
-            <input value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="Temporary password" type="password" minLength={12} autoComplete="new-password" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" />
-            <p className="text-xs leading-5 text-slate-500">At least 12 characters. Send this temporary password to the customer securely.</p>
-          </>}
-          {editing ? <div className="flex gap-2"><Button className="flex-1" onClick={() => updateUser.mutate({ id: editing.id, data: { name: editing.name, status: editing.status } }, { onSuccess: () => { setEditing(null); refresh(); } })}>Save</Button><Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button></div> : <Button disabled={createUser.isPending || !form.name || !form.email || form.password.length < 12} onClick={create}><Plus size={15} /> {createUser.isPending ? 'Creating...' : 'Add user'}</Button>}
+      <div className="grid gap-5">
+        {generated && <GeneratedPasswordCard email={generated.email} password={generated.password} onDismiss={() => setGenerated(null)} />}
+        <div className="rounded-3xl border border-[#dbe7e9] bg-white p-6">
+          <h2 className="font-extrabold text-[#142037]">{editing ? 'Edit user' : 'Add user'}</h2>
+          <div className="mt-5 grid gap-3">
+            <input value={editing?.name ?? form.name} onChange={event => editing ? setEditing({ ...editing, name: event.target.value }) : setForm({ ...form, name: event.target.value })} placeholder="Name" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" />
+            <input value={editing?.email ?? form.email} disabled={!!editing} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="Email" type="email" className="rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm disabled:opacity-50" />
+            {!editing && <p className="text-xs leading-5 text-slate-500">A strong temporary password is generated automatically and shown once after creation.</p>}
+            {editing ? <div className="flex gap-2"><Button className="flex-1" onClick={() => updateUser.mutate({ id: editing.id, data: { name: editing.name, status: editing.status } }, { onSuccess: () => { setEditing(null); refresh(); } })}>Save</Button><Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button></div> : <Button disabled={createUser.isPending || !form.name || !form.email} onClick={create}><Plus size={15} /> {createUser.isPending ? 'Creating...' : 'Add user'}</Button>}
+          </div>
         </div>
       </div>
-      <UsersTable users={users.data || []} loading={users.isLoading} onEdit={setEditing} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refresh }); }} onToggle={user => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refresh })} />
+      <UsersTable users={users.data || []} loading={users.isLoading} onEdit={setEditing} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refresh }); }} onToggle={user => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refresh })} onResetPassword={resetUserPassword} resettingId={resettingId} />
     </div>
   </PageLayout>;
 }

@@ -1,12 +1,22 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createHash, randomBytes, randomInt } from 'node:crypto';
 import { mapOrder } from '../../common/mappers';
 import { DatabaseService } from '../database/database.service';
 import type { AuthUser } from '../auth/auth.types';
 import type { CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 const orderSelect = 'id,profile_id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,profiles(email),products(code,name,service_type),resources(name)';
+
+// Generates a random strong password for newly created accounts and admin
+// password resets. Each character is picked with crypto.randomInt (unbiased),
+// and the charset guarantees upper/lower/digit/symbol variety.
+function generateStrongPassword(length = 20) {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*-_=+';
+  let password = '';
+  for (let index = 0; index < length; index += 1) password += charset[randomInt(charset.length)];
+  return password;
+}
 
 @Injectable()
 export class AdminService {
@@ -39,7 +49,7 @@ export class AdminService {
 
   async users() {
     const [profiles, orders] = await Promise.all([
-      this.db.client.from('profiles').select('id,name,email,status,is_trial').order('created_at', { ascending: false }),
+      this.db.client.from('profiles').select('id,name,email,status,is_trial').neq('role', 'admin').order('created_at', { ascending: false }),
       this.db.client.from('orders').select('profile_id,plan_name_snapshot,created_at').eq('status', 'active').order('created_at', { ascending: false }),
     ]);
     const rows = this.db.unwrap(profiles, 'Unable to load users');
@@ -56,9 +66,10 @@ export class AdminService {
 
   async createUser(dto: CreateUserDto) {
     const email = dto.email.toLowerCase();
+    const temporaryPassword = generateStrongPassword();
     const created = await this.db.client.auth.admin.createUser({
       email,
-      password: dto.password,
+      password: temporaryPassword,
       email_confirm: true,
       user_metadata: { name: dto.name },
     });
@@ -69,7 +80,19 @@ export class AdminService {
     const result = await this.db.client.from('profiles').select('id,name,email,status,is_trial').eq('auth_user_id', created.data.user.id).maybeSingle();
     const profile = this.db.unwrap(result, 'Account was created but its profile could not be loaded');
     if (!profile) throw new NotFoundException('Account profile was not created');
-    return { id: profile.id, name: profile.name, email: profile.email, status: profile.status, isTrial: profile.is_trial, planName: 'No active plan' };
+    return { id: profile.id, name: profile.name, email: profile.email, status: profile.status, isTrial: profile.is_trial, planName: 'No active plan', temporaryPassword };
+  }
+
+  async resetUserPassword(id: number) {
+    const profileResult = await this.db.client.from('profiles').select('id,auth_user_id,role').eq('id', id).maybeSingle();
+    const profile = this.db.unwrap(profileResult, 'Unable to load user');
+    if (!profile) throw new NotFoundException('User not found');
+    if (profile.role === 'admin') throw new BadRequestException('Cannot reset an administrator password from this endpoint');
+    if (!profile.auth_user_id) throw new ConflictException('User has no login account to reset');
+    const temporaryPassword = generateStrongPassword();
+    const updated = await this.db.client.auth.admin.updateUserById(profile.auth_user_id, { password: temporaryPassword });
+    if (updated.error) throw new ConflictException(`Unable to reset password: ${updated.error.message}`);
+    return { id, temporaryPassword };
   }
 
   async updateUser(id: number, dto: UpdateUserDto) {

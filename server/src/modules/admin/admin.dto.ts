@@ -3,7 +3,6 @@ import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Length
 export class CreateUserDto {
   @IsString() @Length(2, 100) name: string;
   @IsEmail() email: string;
-  @IsString() @Length(12, 72) password: string;
 }
 export class UpdateUserDto {
   @IsOptional() @IsString() @Length(2, 100) name?: string;

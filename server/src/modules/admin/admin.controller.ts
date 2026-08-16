@@ -13,6 +13,7 @@ export class AdminController {
   @Get('users') users() { return this.service.users(); }
   @Post('users') createUser(@Body() body: CreateUserDto) { return this.service.createUser(body); }
   @Patch('users/:id') updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserDto) { return this.service.updateUser(id, body); }
+  @Post('users/:id/reset-password') resetUserPassword(@Param('id', ParseIntPipe) id: number) { return this.service.resetUserPassword(id); }
   @Get('credits') credits() { return this.service.credits(); }
   @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
   @Delete('users/:id') @HttpCode(204) deleteUser(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.service.deleteUser(id, user); }

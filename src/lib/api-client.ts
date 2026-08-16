@@ -97,6 +97,7 @@ export interface User {
   status: 'active' | 'suspended';
   isTrial?: boolean;
   planName: string;
+  temporaryPassword?: string;
 }
 export interface SandboxKey {
   id: number;
@@ -470,11 +471,14 @@ export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; no
 export function useRecreateAllProxyNodes(options?: MutationConfig<{ nodeIds: number[]; status: 'rotating' }, void>) {
   return useMutation({ mutationFn: () => request<{ nodeIds: number[]; status: 'rotating' }>('/client/proxy/nodes/recreate-all', getAccessToken, { method: 'POST' }), ...options });
 }
-export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string; password?: string } }>) {
+export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<User>('/admin/users', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useUpdateUser(options?: MutationConfig<User, { id: number; data: { name?: string; status?: string; isTrial?: boolean } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<User>(`/admin/users/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
+}
+export function useResetUserPassword(options?: MutationConfig<{ id: number; temporaryPassword: string }, { id: number }>) {
+  return useMutation({ mutationFn: ({ id }) => request<{ id: number; temporaryPassword: string }>(`/admin/users/${id}/reset-password`, getAccessToken, { method: 'POST' }), ...options });
 }
 export function useDeleteUser(options?: MutationConfig<void, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request<void>(`/admin/users/${id}`, getAccessToken, { method: 'DELETE' }), ...options });
