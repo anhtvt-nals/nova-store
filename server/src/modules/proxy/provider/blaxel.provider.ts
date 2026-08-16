@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'node:crypto';
 import { GostCommandBuilder } from '../gost/gost-command.builder';
 import type { ComputeProvider, ProviderInstance, ProvisionNodeInput } from './compute-provider';
 
@@ -14,6 +15,7 @@ type BlaxelSandbox = {
 export class BlaxelProvider implements ComputeProvider {
   readonly type = 'blaxel';
   readonly capabilities = { executionMode: 'sandbox' as const, supportsInteractiveExec: true, supportsLongRunning: true, supportsOutboundTcp: true, supportsLifetimeExtension: false, supportsCustomImage: true, maxRuntimeSeconds: 86400 };
+  private readonly logger = new Logger(BlaxelProvider.name);
 
   constructor(private readonly gost: GostCommandBuilder, private readonly config: ConfigService) {}
 
@@ -21,16 +23,21 @@ export class BlaxelProvider implements ComputeProvider {
     const { workspace, apiKey } = this.parseKey(input.providerApiKey);
     const name = `nodenesia-proxy-${input.nodeId}-${Date.now().toString(36)}`;
     const image = input.template || String(this.config.get('BLAXEL_IMAGE') || 'blaxel/base-image:latest');
+    const target = this.selectTarget();
+    this.logger.log(`Provisioning proxy node ${input.nodeId} in Blaxel region ${target.region}${target.gateway ? ` with egress gateway ${target.gateway}` : ''}`);
     const sandbox = await this.request<BlaxelSandbox>(workspace, apiKey, 'POST', '/sandboxes', {
       metadata: {
         name,
         displayName: `Nodenesia proxy node ${input.nodeId}`,
-        labels: { managedBy: 'proxy-node', nodeId: String(input.nodeId), orderId: String(input.orderId), ...input.metadata },
+        labels: {
+          managedBy: 'proxy-node', nodeId: String(input.nodeId), orderId: String(input.orderId),
+          blaxelRegion: target.region, ...(target.gateway ? { blaxelEgressGateway: target.gateway } : {}), ...input.metadata,
+        },
       },
       spec: {
         enabled: true,
-        region: String(this.config.get('BLAXEL_REGION') || 'us-pdx-1'),
-        ...(this.egressGateway() ? { network: { egress: { mode: 'dedicated', gateway: this.egressGateway() } } } : {}),
+        region: target.region,
+        ...(target.gateway ? { network: { egress: { mode: 'dedicated', gateway: target.gateway } } } : {}),
         runtime: {
           image,
           memory: this.memoryMb(),
@@ -157,8 +164,36 @@ export class BlaxelProvider implements ComputeProvider {
     return Math.max(512, Math.min(65536, Number.isFinite(configured) ? Math.floor(configured) : 1024));
   }
 
-  private egressGateway() {
-    return String(this.config.get('BLAXEL_EGRESS_GATEWAY') || '').trim();
+  private configuredRegions() {
+    const regions = String(this.config.get('BLAXEL_REGION') || 'us-pdx-1')
+      .split('|')
+      .map(region => region.trim())
+      .filter(Boolean);
+    if (!regions.length) throw new Error('BLAXEL_REGION must contain at least one region, separated with |');
+    return regions;
+  }
+
+  private selectTarget() {
+    const regions = this.configuredRegions();
+    const gatewayPool = String(this.config.get('BLAXEL_EGRESS_GATEWAYS') || '').trim();
+    if (!gatewayPool) {
+      const gateway = String(this.config.get('BLAXEL_EGRESS_GATEWAY') || '').trim();
+      return { region: regions[randomInt(regions.length)], gateway };
+    }
+
+    const targets = gatewayPool.split('|').map(entry => {
+      const separator = entry.indexOf('=');
+      const region = entry.slice(0, separator).trim();
+      const gateway = entry.slice(separator + 1).trim();
+      if (separator < 1 || !region || !gateway) {
+        throw new Error('BLAXEL_EGRESS_GATEWAYS entries must use REGION=GATEWAY, separated with |');
+      }
+      return { region, gateway };
+    }).filter(target => regions.includes(target.region));
+    if (!targets.length) {
+      throw new Error('BLAXEL_EGRESS_GATEWAYS has no gateway for a region allowed by BLAXEL_REGION');
+    }
+    return targets[randomInt(targets.length)];
   }
 
   private mapInstance(sandbox: BlaxelSandbox): ProviderInstance {

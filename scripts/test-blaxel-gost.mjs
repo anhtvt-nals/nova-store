@@ -3,7 +3,7 @@
 // GOST_PUBLIC_HOST:39999. Ctrl+C (SIGINT) or SIGTERM deletes the sandbox.
 // Usage: BLAXEL_TEST_KEY='workspace|api-key' npm run test:blaxel-gost
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import net from 'node:net';
 import { promisify } from 'node:util';
@@ -14,8 +14,8 @@ const TEST_PORT = 39999;
 const apiBaseUrl = String(process.env.BLAXEL_API_BASE_URL || 'https://api.blaxel.ai/v0').replace(/\/$/, '');
 const apiVersion = String(process.env.BLAXEL_API_VERSION || '2026-04-16');
 const image = String(process.env.BLAXEL_IMAGE || 'blaxel/base-image:latest');
-const region = String(process.env.BLAXEL_REGION || 'us-pdx-1');
-const egressGateway = String(process.env.BLAXEL_EGRESS_GATEWAY || '').trim();
+const egressTarget = selectEgressTarget(process.env.BLAXEL_REGION || 'us-pdx-1', process.env.BLAXEL_EGRESS_GATEWAYS, process.env.BLAXEL_EGRESS_GATEWAY);
+const { region, gateway: egressGateway } = egressTarget;
 const memory = boundedInteger(process.env.BLAXEL_SANDBOX_MEMORY_MB, 1024, 512, 65536);
 const readyTimeoutMs = boundedInteger(process.env.BLAXEL_READY_TIMEOUT_MS, 180000, 30000, 600000);
 const gostVersion = requiredVersion('GOST_VERSION', process.env.GOST_VERSION || '3.2.6');
@@ -51,6 +51,26 @@ function requiredVersion(name, value) {
 function boundedInteger(value, fallback, min, max) {
   const parsed = Number(value || fallback);
   return Math.max(min, Math.min(max, Number.isFinite(parsed) ? Math.floor(parsed) : fallback));
+}
+function selectRegion(value) {
+  const regions = String(value).split('|').map(region => region.trim()).filter(Boolean);
+  if (!regions.length) fail('BLAXEL_REGION must contain at least one region, separated with |');
+  return regions[randomInt(regions.length)];
+}
+function selectEgressTarget(regionsValue, gatewayPoolValue, legacyGatewayValue) {
+  const regions = String(regionsValue).split('|').map(region => region.trim()).filter(Boolean);
+  if (!regions.length) fail('BLAXEL_REGION must contain at least one region, separated with |');
+  const gatewayPool = String(gatewayPoolValue || '').trim();
+  if (!gatewayPool) return { region: selectRegion(regionsValue), gateway: String(legacyGatewayValue || '').trim() };
+  const targets = gatewayPool.split('|').map(entry => {
+    const separator = entry.indexOf('=');
+    const region = entry.slice(0, separator).trim();
+    const gateway = entry.slice(separator + 1).trim();
+    if (separator < 1 || !region || !gateway) fail('BLAXEL_EGRESS_GATEWAYS entries must use REGION=GATEWAY, separated with |');
+    return { region, gateway };
+  }).filter(target => regions.includes(target.region));
+  if (!targets.length) fail('BLAXEL_EGRESS_GATEWAYS has no gateway for a region allowed by BLAXEL_REGION');
+  return targets[randomInt(targets.length)];
 }
 function alphaNumeric(length) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -174,9 +194,9 @@ async function reportProxyEgress() {
       '--proxy', proxyUrl,
       'https://api.ipify.org',
     ]);
-    const egressIp = String(stdout).trim().match(/^(?:\d{1,3}\.){3}\d{1,3}$/)?.[0];
-    process.stdout.write(egressIp
-      ? `[blaxel-test] Proxy egress IP (via SOCKS5): ${egressIp}\n`
+    const egressAddress = String(stdout).trim();
+    process.stdout.write(net.isIP(egressAddress)
+      ? `[blaxel-test] Proxy egress IP (via SOCKS5): ${egressAddress}\n`
       : '[blaxel-test] Proxy egress IP: unavailable (unexpected response through SOCKS5)\n');
   } catch {
     process.stdout.write('[blaxel-test] Proxy egress IP: unavailable (curl through SOCKS5 failed)\n');
@@ -213,9 +233,9 @@ process.once('unhandledRejection', error => { process.stderr.write(`${error inst
 
 try {
   sandboxName = `nodenesia-gost-test-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
-  process.stdout.write(`[blaxel-test] Creating sandbox ${sandboxName} in ${workspace}/${region}…\n`);
+  process.stdout.write(`[blaxel-test] Creating sandbox ${sandboxName} in ${workspace}/${region}${egressGateway ? ` via egress gateway ${egressGateway}` : ''}…\n`);
   await blaxel('POST', '/sandboxes', {
-    metadata: { name: sandboxName, displayName: 'Nodenesia temporary GOST test', labels: { managedBy: 'nodenesia-gost-test', tunnelPort: String(TEST_PORT) } },
+    metadata: { name: sandboxName, displayName: 'Nodenesia temporary GOST test', labels: { managedBy: 'nodenesia-gost-test', tunnelPort: String(TEST_PORT), blaxelRegion: region, ...(egressGateway ? { blaxelEgressGateway: egressGateway } : {}) } },
     spec: {
       enabled: true,
       region,
