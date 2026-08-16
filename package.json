@@ -18,6 +18,7 @@
     "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs",
     "clean:blaxel-gost-tests": "node scripts/clean-blaxel-gost-tests.mjs",
     "test:blaxel-gost": "node scripts/test-blaxel-gost.mjs",
+    "test:beam-gost": "node scripts/test-beam-gost.mjs",
     "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
     "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs",
     "deploy:redeploy": "bash scripts/redeploy-production.sh"
