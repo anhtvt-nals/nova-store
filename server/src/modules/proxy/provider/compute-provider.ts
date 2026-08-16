@@ -55,6 +55,9 @@ export interface ComputeProvider {
   provisionNode(input: ProvisionNodeInput): Promise<ProviderInstance>;
   getInstance(externalInstanceId: string, providerApiKey: string): Promise<ProviderInstance>;
   terminateInstance(externalInstanceId: string, providerApiKey: string): Promise<void>;
+  /** Finalize or release provider-specific resources associated with a node. */
+  activateNodeResources?(nodeId: number): Promise<void>;
+  releaseNodeResources?(nodeId: number): Promise<void>;
   renewInstance?(externalInstanceId: string, expiresAt: Date): Promise<void>;
   listOwnedInstances(providerApiKey: string): Promise<ProviderInstance[]>;
 }

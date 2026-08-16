@@ -3,7 +3,7 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
-import { AdjustCreditDto, CreateApiKeyDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import { AdjustCreditDto, CreateApiKeyDto, CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 @UseGuards(AdminGuard)
 @Controller('admin')
@@ -31,6 +31,10 @@ export class AdminController {
   @Get('proxy/provider-api-keys') providerApiKeys() { return this.service.providerApiKeys(); }
   @Post('proxy/providers/:id/api-keys') createProviderApiKey(@Param('id', ParseIntPipe) id: number, @Body() body: CreateProviderApiKeyDto) { return this.service.createProviderApiKey(id, body); }
   @Delete('proxy/provider-api-keys/:id') @HttpCode(204) revokeProviderApiKey(@Param('id', ParseIntPipe) id: number) { return this.service.revokeProviderApiKey(id); }
+  @Get('proxy/blaxel-egress-gateways') blaxelEgressGateways() { return this.service.blaxelEgressGateways(); }
+  @Post('proxy/blaxel-egress-gateways') createBlaxelEgressGateway(@Body() body: CreateBlaxelEgressGatewayDto) { return this.service.createBlaxelEgressGateway(body); }
+  @Patch('proxy/blaxel-egress-gateways/:id') updateBlaxelEgressGateway(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateBlaxelEgressGatewayDto) { return this.service.updateBlaxelEgressGateway(id, body); }
+  @Delete('proxy/blaxel-egress-gateways/:id') @HttpCode(204) deleteBlaxelEgressGateway(@Param('id', ParseIntPipe) id: number) { return this.service.deleteBlaxelEgressGateway(id); }
   @Get('proxy/settings') proxySettings() { return this.service.proxySettings(); }
   @Patch('proxy/settings/:id') updateProxyPrice(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateProxyPriceDto) { return this.service.updateProxyPrice(id, body); }
   @Get('settings') generalSettings() { return this.service.generalSettings(); }

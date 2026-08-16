@@ -4,7 +4,7 @@ import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { mapOrder } from '../../common/mappers';
 import { DatabaseService } from '../database/database.service';
 import type { AuthUser } from '../auth/auth.types';
-import type { CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import type { CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 const orderSelect = 'id,profile_id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,profiles(email),products(code,name,service_type),resources(name)';
 
@@ -371,6 +371,42 @@ export class AdminService {
   async revokeProviderApiKey(id: number) {
     const result = await this.db.client.from('provider_api_keys').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', id).select('id').maybeSingle();
     if (!this.db.unwrap(result, 'Unable to revoke provider API key')) throw new NotFoundException('Provider API key not found');
+  }
+
+  async blaxelEgressGateways() {
+    const result = await this.db.client.from('blaxel_egress_gateways')
+      .select('id,provider_api_key_id,name,region,status,created_at,provider_api_keys(label,key_prefix,key_last4,proxy_providers(code,name)),blaxel_egress_gateway_leases(node_id,status)')
+      .order('provider_api_key_id').order('name');
+    return this.db.unwrap(result, 'Unable to load Blaxel egress gateways').map((row: any) => {
+      const key = Array.isArray(row.provider_api_keys) ? row.provider_api_keys[0] : row.provider_api_keys;
+      const provider = Array.isArray(key?.proxy_providers) ? key.proxy_providers[0] : key?.proxy_providers;
+      const lease = Array.isArray(row.blaxel_egress_gateway_leases) ? row.blaxel_egress_gateway_leases[0] : row.blaxel_egress_gateway_leases;
+      return { id: row.id, providerApiKeyId: row.provider_api_key_id, name: row.name, region: row.region, status: row.status, createdAt: row.created_at, accountLabel: key?.label || 'Unknown', accountMaskedKey: key ? `${key.key_prefix}••••${key.key_last4}` : '', providerName: provider?.name || 'Blaxel', leasedNodeId: lease?.node_id || null, leaseStatus: lease?.status || null };
+    });
+  }
+
+  async createBlaxelEgressGateway(dto: CreateBlaxelEgressGatewayDto) {
+    const keyResult = await this.db.client.from('provider_api_keys').select('id,proxy_providers(code)').eq('id', dto.providerApiKeyId).eq('status', 'active').maybeSingle();
+    const key = this.db.unwrap(keyResult, 'Unable to validate Blaxel provider API key') as any;
+    const provider = Array.isArray(key?.proxy_providers) ? key.proxy_providers[0] : key?.proxy_providers;
+    if (!key || provider?.code !== 'blaxel') throw new BadRequestException('Select an active Blaxel provider API key');
+    const result = await this.db.client.from('blaxel_egress_gateways').insert({ provider_api_key_id: dto.providerApiKeyId, name: dto.name, region: dto.region }).select('id,provider_api_key_id,name,region,status,created_at').single();
+    if (result.error?.code === '23505') throw new ConflictException('This gateway is already registered for the selected Blaxel account');
+    const row = this.db.unwrap(result, 'Unable to add Blaxel egress gateway');
+    return { id: row.id, providerApiKeyId: row.provider_api_key_id, name: row.name, region: row.region, status: row.status, createdAt: row.created_at, leasedNodeId: null, leaseStatus: null };
+  }
+
+  async updateBlaxelEgressGateway(id: number, dto: UpdateBlaxelEgressGatewayDto) {
+    const result = await this.db.client.from('blaxel_egress_gateways').update({ status: dto.status, updated_at: new Date().toISOString() }).eq('id', id).select('id,provider_api_key_id,name,region,status,created_at').maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to update Blaxel egress gateway');
+    if (!row) throw new NotFoundException('Blaxel egress gateway not found');
+    return row;
+  }
+
+  async deleteBlaxelEgressGateway(id: number) {
+    const result = await this.db.client.from('blaxel_egress_gateways').delete().eq('id', id).select('id').maybeSingle();
+    if (result.error?.code === '23503') throw new ConflictException('Release the node using this gateway before deleting it');
+    if (!this.db.unwrap(result, 'Unable to delete Blaxel egress gateway')) throw new NotFoundException('Blaxel egress gateway not found');
   }
 
   async proxySettings() {

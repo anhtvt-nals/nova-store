@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomInt } from 'node:crypto';
+import { DatabaseService } from '../../database/database.service';
 import { GostCommandBuilder } from '../gost/gost-command.builder';
 import type { ComputeProvider, ProviderInstance, ProvisionNodeInput } from './compute-provider';
 
@@ -17,36 +17,41 @@ export class BlaxelProvider implements ComputeProvider {
   readonly capabilities = { executionMode: 'sandbox' as const, supportsInteractiveExec: true, supportsLongRunning: true, supportsOutboundTcp: true, supportsLifetimeExtension: false, supportsCustomImage: true, maxRuntimeSeconds: 86400 };
   private readonly logger = new Logger(BlaxelProvider.name);
 
-  constructor(private readonly gost: GostCommandBuilder, private readonly config: ConfigService) {}
+  constructor(
+    private readonly gost: GostCommandBuilder,
+    private readonly config: ConfigService,
+    private readonly db: DatabaseService,
+  ) {}
 
   async provisionNode(input: ProvisionNodeInput): Promise<ProviderInstance> {
     const { workspace, apiKey } = this.parseKey(input.providerApiKey);
     const name = `nodenesia-proxy-${input.nodeId}-${Date.now().toString(36)}`;
     const image = input.template || String(this.config.get('BLAXEL_IMAGE') || 'blaxel/base-image:latest');
-    const target = this.selectTarget();
+    const target = await this.selectTarget(input.nodeId, input.providerApiKeyId);
     this.logger.log(`Provisioning proxy node ${input.nodeId} in Blaxel region ${target.region}${target.gateway ? ` with egress gateway ${target.gateway}` : ''}`);
-    const sandbox = await this.request<BlaxelSandbox>(workspace, apiKey, 'POST', '/sandboxes', {
-      metadata: {
-        name,
-        displayName: `Nodenesia proxy node ${input.nodeId}`,
-        labels: {
-          managedBy: 'proxy-node', nodeId: String(input.nodeId), orderId: String(input.orderId),
-          blaxelRegion: target.region, ...(target.gateway ? { blaxelEgressGateway: target.gateway } : {}), ...input.metadata,
-        },
-      },
-      spec: {
-        enabled: true,
-        region: target.region,
-        ...(target.gateway ? { network: { egress: { mode: 'dedicated', gateway: target.gateway } } } : {}),
-        runtime: {
-          image,
-          memory: this.memoryMb(),
-          ttl: `${Math.max(1, Math.ceil(input.timeoutMs / 60_000))}m`,
-        },
-      },
-    });
-    const sandboxName = sandbox.metadata?.name || name;
+    let sandboxName = name;
     try {
+      const sandbox = await this.request<BlaxelSandbox>(workspace, apiKey, 'POST', '/sandboxes', {
+        metadata: {
+          name,
+          displayName: `Nodenesia proxy node ${input.nodeId}`,
+          labels: {
+            managedBy: 'proxy-node', nodeId: String(input.nodeId), orderId: String(input.orderId),
+            blaxelRegion: target.region, ...(target.gateway ? { blaxelEgressGateway: target.gateway } : {}), ...input.metadata,
+          },
+        },
+        spec: {
+          enabled: true,
+          region: target.region,
+          ...(target.gateway ? { network: { egress: { mode: 'dedicated', gateway: target.gateway } } } : {}),
+          runtime: {
+            image,
+            memory: this.memoryMb(),
+            ttl: `${Math.max(1, Math.ceil(input.timeoutMs / 60_000))}m`,
+          },
+        },
+      });
+      sandboxName = sandbox.metadata?.name || name;
       const ready = await this.waitForDeployment(sandboxName, workspace, apiKey);
       const sandboxUrl = ready.metadata?.url;
       if (!sandboxUrl) throw new Error(`Blaxel sandbox ${sandboxName} did not return its sandbox API URL`);
@@ -66,11 +71,22 @@ export class BlaxelProvider implements ComputeProvider {
       await this.exec(sandboxUrl, apiKey, 'probe-local-socks', this.gost.probeLocal(input.gost.localPort), {}, true, 30);
       const tunnel = this.gost.reverseTunnel(input);
       await this.exec(sandboxUrl, apiKey, 'gost-tunnel', tunnel.command, tunnel.envs, false);
-      return this.mapInstance(ready);
+      return { ...this.mapInstance(ready), metadata: { ...(ready.metadata?.labels || {}), blaxelRegion: target.region, ...(target.gateway ? { blaxelEgressGateway: target.gateway } : {}) } };
     } catch (error) {
       await this.terminateInstance(sandboxName, input.providerApiKey).catch(() => undefined);
+      await this.releaseNodeResources(input.nodeId).catch(() => undefined);
       throw error;
     }
+  }
+
+  async activateNodeResources(nodeId: number) {
+    const result = await this.db.client.rpc('activate_blaxel_egress_gateway_lease', { target_node_id: nodeId });
+    this.db.unwrap(result, 'Unable to activate Blaxel egress gateway lease');
+  }
+
+  async releaseNodeResources(nodeId: number) {
+    const result = await this.db.client.rpc('release_blaxel_egress_gateway_lease', { target_node_id: nodeId });
+    this.db.unwrap(result, 'Unable to release Blaxel egress gateway lease');
   }
 
   async getInstance(externalInstanceId: string, providerApiKey: string) {
@@ -164,36 +180,16 @@ export class BlaxelProvider implements ComputeProvider {
     return Math.max(512, Math.min(65536, Number.isFinite(configured) ? Math.floor(configured) : 1024));
   }
 
-  private configuredRegions() {
-    const regions = String(this.config.get('BLAXEL_REGION') || 'us-pdx-1')
-      .split('|')
-      .map(region => region.trim())
-      .filter(Boolean);
-    if (!regions.length) throw new Error('BLAXEL_REGION must contain at least one region, separated with |');
-    return regions;
-  }
-
-  private selectTarget() {
-    const regions = this.configuredRegions();
-    const gatewayPool = String(this.config.get('BLAXEL_EGRESS_GATEWAYS') || '').trim();
-    if (!gatewayPool) {
-      const gateway = String(this.config.get('BLAXEL_EGRESS_GATEWAY') || '').trim();
-      return { region: regions[randomInt(regions.length)], gateway };
-    }
-
-    const targets = gatewayPool.split('|').map(entry => {
-      const separator = entry.indexOf('=');
-      const region = entry.slice(0, separator).trim();
-      const gateway = entry.slice(separator + 1).trim();
-      if (separator < 1 || !region || !gateway) {
-        throw new Error('BLAXEL_EGRESS_GATEWAYS entries must use REGION=GATEWAY, separated with |');
-      }
-      return { region, gateway };
-    }).filter(target => regions.includes(target.region));
-    if (!targets.length) {
-      throw new Error('BLAXEL_EGRESS_GATEWAYS has no gateway for a region allowed by BLAXEL_REGION');
-    }
-    return targets[randomInt(targets.length)];
+  private async selectTarget(nodeId: number, apiKeyId: number) {
+    const result = await this.db.client.rpc('reserve_blaxel_egress_gateway', {
+      target_node_id: nodeId,
+      target_provider_api_key_id: apiKeyId,
+      lease_seconds: 900,
+    });
+    const rows = this.db.unwrap(result, 'Unable to reserve a Blaxel egress gateway') as Array<{ selected_region: string; selected_gateway: string }>;
+    const target = rows[0];
+    if (!target) throw new Error('No dedicated Blaxel egress IP is available');
+    return { region: target.selected_region, gateway: target.selected_gateway };
   }
 
   private mapInstance(sandbox: BlaxelSandbox): ProviderInstance {

@@ -262,6 +262,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         ? githubReadyTimeout
         : replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
       await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
+      await provider.activateNodeResources?.(context.nodeId);
       if (replacing) {
         await this.repository.completeReplacement({
           jobId: job.id,
@@ -289,6 +290,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           .then(() => true).catch(() => false);
         if (providerId) await this.repository.markInstanceStopped(providerId, instance.externalInstanceId, terminated ? 'stopped' : 'error').catch(() => undefined);
       }
+      if (providerDriver) await this.providers.get(providerDriver).releaseNodeResources?.(job.node_id).catch(() => undefined);
       const delaySeconds = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
       const recordFailure = job.action === 'terminate'
         ? this.repository.failTermination(job.id, this.workerId, message, delaySeconds)
@@ -306,16 +308,22 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
 
   private async terminate(job: ProvisioningJob) {
     const context = await this.repository.terminationContext(job.node_id);
+    let providerDriver = '';
     if (context.currentInstanceId) {
       if (!context.providerId || !context.providerApiKeyId) {
         throw new Error('Existing proxy instance has no provider assignment');
       }
       const providerConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
+      providerDriver = providerConfig.driver;
       const providerApiKey = this.secrets.decryptProviderKey(providerConfig.key);
       await this.providers.get(providerConfig.driver).terminateInstance(context.currentInstanceId, providerApiKey);
       await this.repository.markInstanceStopped(context.providerId, context.currentInstanceId, 'stopped');
     }
     await this.repository.completeTermination(job.id, this.workerId);
+    if (!providerDriver && context.providerId && context.providerApiKeyId) {
+      providerDriver = (await this.repository.providerForTermination(context.providerId, context.providerApiKeyId)).driver;
+    }
+    if (providerDriver) await this.providers.get(providerDriver).releaseNodeResources?.(context.nodeId);
     this.logger.log(`Expired proxy node ${context.nodeId} terminated`);
   }
 

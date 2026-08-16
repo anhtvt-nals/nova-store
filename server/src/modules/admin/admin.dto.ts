@@ -99,6 +99,16 @@ export class CreateProviderApiKeyDto {
   @IsString() @Length(8, 1000) secret: string;
 }
 
+export class CreateBlaxelEgressGatewayDto {
+  @IsInt() @Min(1) providerApiKeyId: number;
+  @IsString() @Matches(/^[A-Za-z0-9][A-Za-z0-9-]{0,126}$/) name: string;
+  @IsString() @Matches(/^[a-z]{2}-[a-z]+-[0-9]+$/) region: string;
+}
+
+export class UpdateBlaxelEgressGatewayDto {
+  @IsIn(['active', 'disabled']) status: 'active' | 'disabled';
+}
+
 export class UpdateProxyPriceDto {
   @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice: number;
   @IsString() @Matches(/^[A-Z]{3}$/) currency: string;

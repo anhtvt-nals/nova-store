@@ -15,7 +15,9 @@ const apiBaseUrl = String(process.env.BLAXEL_API_BASE_URL || 'https://api.blaxel
 const apiVersion = String(process.env.BLAXEL_API_VERSION || '2026-04-16');
 const image = String(process.env.BLAXEL_IMAGE || 'blaxel/base-image:latest');
 const egressTarget = selectEgressTarget(process.env.BLAXEL_REGION || 'us-pdx-1', process.env.BLAXEL_EGRESS_GATEWAYS, process.env.BLAXEL_EGRESS_GATEWAY);
-const { region, gateway: egressGateway } = egressTarget;
+const { region, gateway: configuredEgressGateway } = egressTarget;
+let egressGateway = configuredEgressGateway;
+const testDedicatedEgress = process.env.BLAXEL_TEST_DEDICATED_EGRESS === 'true';
 const memory = boundedInteger(process.env.BLAXEL_SANDBOX_MEMORY_MB, 1024, 512, 65536);
 const readyTimeoutMs = boundedInteger(process.env.BLAXEL_READY_TIMEOUT_MS, 180000, 30000, 600000);
 const gostVersion = requiredVersion('GOST_VERSION', process.env.GOST_VERSION || '3.2.6');
@@ -36,6 +38,9 @@ let sandboxName = '';
 let sandboxUrl = '';
 let sandboxCreated = false;
 let cleaning = false;
+let testVpcName = '';
+let testGatewayName = '';
+let testEgressIpName = '';
 const keepOnFailure = process.env.BLAXEL_TEST_KEEP_ON_FAILURE === 'true';
 
 function fail(message) { throw new Error(message); }
@@ -113,6 +118,40 @@ async function waitForDeployment(name) {
     await wait(1500);
   }
   throw new Error(`Blaxel sandbox ${name} did not deploy in time`);
+}
+
+async function waitForEgressDeployment(path, label) {
+  const deadline = Date.now() + readyTimeoutMs;
+  while (Date.now() < deadline) {
+    const resource = await blaxel('GET', path);
+    if (resource.status === 'DEPLOYED') return resource;
+    if (['FAILED', 'TERMINATED', 'DEACTIVATED', 'DELETING'].includes(String(resource.status))) throw new Error(`Blaxel ${label} entered ${resource.status}`);
+    await wait(1500);
+  }
+  throw new Error(`Blaxel ${label} did not become ready in time`);
+}
+
+async function createTemporaryDedicatedEgress(suffix) {
+  testVpcName = `nodenesia-gost-test-${suffix}`;
+  testGatewayName = `egress-${suffix}`;
+  testEgressIpName = `ip-${suffix}`;
+  process.stdout.write(`[blaxel-test] Creating temporary dedicated egress in ${region}…\n`);
+  await blaxel('POST', '/vpcs', {
+    metadata: { name: testVpcName, displayName: 'Nodenesia temporary GOST test VPC', labels: { managedBy: 'nodenesia-gost-test' } },
+    spec: {},
+  });
+  await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}`, `VPC ${testVpcName}`);
+  await blaxel('POST', `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways`, {
+    metadata: { name: testGatewayName, displayName: 'Nodenesia temporary GOST test egress gateway' },
+    spec: { region },
+  });
+  await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}`, `egress gateway ${testGatewayName}`);
+  await blaxel('POST', `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips`, {
+    metadata: { name: testEgressIpName, displayName: 'Nodenesia temporary GOST test egress IP' },
+    spec: { ipFamily: 'IPv4' },
+  });
+  await waitForEgressDeployment(`/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips/${encodeURIComponent(testEgressIpName)}`, `egress IP ${testEgressIpName}`);
+  return testGatewayName;
 }
 
 async function exec(sandboxUrl, name, command, env = {}, waitForCompletion = false, timeout = 0) {
@@ -213,6 +252,17 @@ async function cleanup(exitCode = 0) {
     try { await blaxel('DELETE', `/sandboxes/${encodeURIComponent(sandboxName)}`); }
     catch (error) { process.stderr.write(`[blaxel-test] Cleanup failed: ${error instanceof Error ? error.message : error}\n`); exitCode = 1; }
   }
+  // Delete in dependency order. These are created only with
+  // BLAXEL_TEST_DEDICATED_EGRESS=true, never production gateway resources.
+  for (const path of [
+    testEgressIpName && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}/ips/${encodeURIComponent(testEgressIpName)}`,
+    testGatewayName && `/vpcs/${encodeURIComponent(testVpcName)}/egressgateways/${encodeURIComponent(testGatewayName)}`,
+    testVpcName && `/vpcs/${encodeURIComponent(testVpcName)}`,
+  ]) {
+    if (!path) continue;
+    try { await blaxel('DELETE', path); }
+    catch (error) { process.stderr.write(`[blaxel-test] Cleanup failed for ${path}: ${error instanceof Error ? error.message : error}\n`); exitCode = 1; }
+  }
   process.exit(exitCode);
 }
 
@@ -233,6 +283,7 @@ process.once('unhandledRejection', error => { process.stderr.write(`${error inst
 
 try {
   sandboxName = `nodenesia-gost-test-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
+  if (testDedicatedEgress) egressGateway = await createTemporaryDedicatedEgress(sandboxName.replace('nodenesia-gost-test-', ''));
   process.stdout.write(`[blaxel-test] Creating sandbox ${sandboxName} in ${workspace}/${region}${egressGateway ? ` via egress gateway ${egressGateway}` : ''}…\n`);
   await blaxel('POST', '/sandboxes', {
     metadata: { name: sandboxName, displayName: 'Nodenesia temporary GOST test', labels: { managedBy: 'nodenesia-gost-test', tunnelPort: String(TEST_PORT), blaxelRegion: region, ...(egressGateway ? { blaxelEgressGateway: egressGateway } : {}) } },
