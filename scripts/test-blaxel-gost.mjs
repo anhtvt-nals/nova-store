@@ -4,7 +4,9 @@
 // Usage: BLAXEL_TEST_KEY='workspace|api-key' npm run test:blaxel-gost
 
 import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import net from 'node:net';
+import { promisify } from 'node:util';
 
 try { process.loadEnvFile('.env'); } catch {}
 
@@ -28,6 +30,7 @@ const tunnelPassword = required('BLAXEL_GOST_TUNNEL_PASSWORD');
 const { workspace, apiKey } = parseKey(process.env.BLAXEL_TEST_KEY || process.env.BLAXEL_PROVIDER_KEY || '');
 const socksUsername = String(process.env.BLAXEL_TEST_SOCKS_USERNAME || alphaNumeric(10));
 const socksPassword = String(process.env.BLAXEL_TEST_SOCKS_PASSWORD || alphaNumeric(10));
+const execFileAsync = promisify(execFile);
 
 let sandboxName = '';
 let sandboxUrl = '';
@@ -163,6 +166,23 @@ function socksAuth(host, port, username, password, timeoutMs) {
   });
 }
 
+async function reportProxyEgress() {
+  const proxyUrl = `socks5h://${encodeURIComponent(socksUsername)}:${encodeURIComponent(socksPassword)}@${publicHost}:${TEST_PORT}`;
+  try {
+    const { stdout } = await execFileAsync('curl', [
+      '--silent', '--show-error', '--fail', '--max-time', '20',
+      '--proxy', proxyUrl,
+      'https://api.ipify.org',
+    ]);
+    const egressIp = String(stdout).trim().match(/^(?:\d{1,3}\.){3}\d{1,3}$/)?.[0];
+    process.stdout.write(egressIp
+      ? `[blaxel-test] Proxy egress IP (via SOCKS5): ${egressIp}\n`
+      : '[blaxel-test] Proxy egress IP: unavailable (unexpected response through SOCKS5)\n');
+  } catch {
+    process.stdout.write('[blaxel-test] Proxy egress IP: unavailable (curl through SOCKS5 failed)\n');
+  }
+}
+
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 async function cleanup(exitCode = 0) {
@@ -212,9 +232,6 @@ try {
   await exec(sandboxUrl, 'check-rendezvous', rendezvousCheck, { TEST_HOST: masterHost, TEST_PORT: String(rendezvousPort) }, true, 10);
   const install = `if ! command -v curl >/dev/null 2>&1; then (apk add --no-cache curl || (apt-get update && apt-get install -y curl)); fi; cd /tmp && (curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64.tar.gz" || curl -fsSL -o /tmp/gost.tar.gz "https://github.com/go-gost/gost/releases/download/v${gostVersion}/gost_${gostVersion}_linux_amd64v3.tar.gz") && tar -xzf /tmp/gost.tar.gz -C /tmp gost && chmod +x /tmp/gost && /tmp/gost -V`;
   await exec(sandboxUrl, 'install-gost', install, {}, true, 60);
-  const egress = await exec(sandboxUrl, 'report-egress-ip', 'curl -4 -fsS --connect-timeout 5 http://api.ipify.org || true', {}, true, 15);
-  const egressIp = [egress?.logs, egress?.stdout].filter(Boolean).join('\n').trim();
-  process.stdout.write(`[blaxel-test] Sandbox egress IP: ${egressIp || 'unavailable'}\n`);
   const query = gostQuery();
   await exec(sandboxUrl, 'gost-socks', 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done', {
     SOCKS_USER: encodeURIComponent(socksUsername), SOCKS_PASS: encodeURIComponent(socksPassword), LOCAL_PORT: String(localPort), SOCKS_QUERY: query,
@@ -228,6 +245,7 @@ try {
     TUNNEL_USER: encodeURIComponent(tunnelUsername), TUNNEL_PASS: encodeURIComponent(tunnelPassword), MASTER_HOST: masterHost, RENDEZVOUS_PORT: String(rendezvousPort), TUNNEL_QUERY: tunnelQuery,
   }, false);
   await waitForProxy();
+  await reportProxyEgress();
   process.stdout.write(`\n[blaxel-test] SOCKS5 ready: socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}\n[blaxel-test] Press Ctrl+C to delete the sandbox and release port ${TEST_PORT}.\n`);
   // Keep Node's event loop alive without an unresolved top-level await warning.
   await new Promise(() => { setInterval(() => {}, 60_000); });
