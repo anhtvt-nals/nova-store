@@ -50,6 +50,6 @@ import { ProxyUsageService } from './proxy-usage.service';
       inject: [E2bProvider, RunloopProvider, BlaxelProvider, GithubActionsProvider],
     },
   ],
-  exports: [ProxyService, ProxyCredentialService, ProviderRegistry],
+  exports: [ProxyService, ProxyCredentialService, ProxySecretService, ProviderRegistry],
 })
 export class ProxyModule {}

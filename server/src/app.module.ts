@@ -11,6 +11,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthController } from './modules/health.controller';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ProxyModule } from './modules/proxy/proxy.module';
+import { StaticResidentialModule } from './modules/static-residential/static-residential.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ProxyModule } from './modules/proxy/proxy.module';
     DashboardModule,
     AdminModule,
     ProxyModule,
+    StaticResidentialModule,
   ],
   controllers: [HealthController],
   providers: [
