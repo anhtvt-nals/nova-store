@@ -109,9 +109,8 @@ export interface AdminOrder extends Order {
 }
 export interface PaginatedAdminOrders { items: AdminOrder[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface ProvisioningJobLog {
-  id: number; nodeId: number; orderId: number | null; action: 'provision' | 'replace' | 'terminate'; status: 'queued' | 'running' | 'retry' | 'completed' | 'failed';
-  attempts: number; maxAttempts: number; runAfter: string | null; lockedBy: string | null; lockedUntil: string | null; error: string | null;
-  nodeStatus: RuntimeProxyNodeStatus | null; providerName: string | null; providerCode: string | null; createdAt: string; updatedAt: string;
+  id: number; nodeId: number; orderId: number | null; eventType: string; status: string; error: string;
+  nodeStatus: RuntimeProxyNodeStatus | null; providerName: string | null; providerCode: string | null; createdAt: string;
 }
 export interface PaginatedProvisioningJobs { items: ProvisioningJobLog[]; total: number; page: number; pageSize: 2; totalPages: number; }
 export interface User {
