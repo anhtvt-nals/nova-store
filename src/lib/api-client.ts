@@ -108,6 +108,12 @@ export interface AdminOrder extends Order {
   quotaGb?: number | null;
 }
 export interface PaginatedAdminOrders { items: AdminOrder[]; total: number; page: number; pageSize: number; totalPages: number; }
+export interface ProvisioningJobLog {
+  id: number; nodeId: number; orderId: number | null; action: 'provision' | 'replace' | 'terminate'; status: 'queued' | 'running' | 'retry' | 'completed' | 'failed';
+  attempts: number; maxAttempts: number; runAfter: string | null; lockedBy: string | null; lockedUntil: string | null; error: string | null;
+  nodeStatus: RuntimeProxyNodeStatus | null; providerName: string | null; providerCode: string | null; createdAt: string; updatedAt: string;
+}
+export interface PaginatedProvisioningJobs { items: ProvisioningJobLog[]; total: number; page: number; pageSize: 2; totalPages: number; }
 export interface User {
   id: number;
   name: string;
@@ -351,6 +357,7 @@ export const getListCategoriesQueryKey = () => ['admin-categories'] as const;
 export const getListAdminProductsQueryKey = () => ['admin-products'] as const;
 export const getListProvidersQueryKey = () => ['proxy-providers'] as const;
 export const getListProviderApiKeysQueryKey = () => ['provider-api-keys'] as const;
+export const getProvisioningJobsQueryKey = (page: number) => ['provisioning-jobs', page] as const;
 export const getProxySettingsQueryKey = () => ['proxy-settings'] as const;
 export const getGeneralSettingsQueryKey = () => ['general-settings'] as const;
 export const getCreditWalletsQueryKey = (page?: number, pageSize?: number) => page === undefined
@@ -500,6 +507,9 @@ export function useListProviders(config?: QueryConfig<ProxyProvider[]>) {
 }
 export function useListProviderApiKeys(config?: QueryConfig<ProviderApiKey[]>) {
   return query(getListProviderApiKeysQueryKey(), '/admin/proxy/provider-api-keys', getAccessToken, config);
+}
+export function useProvisioningJobs(page = 1, config?: QueryConfig<PaginatedProvisioningJobs>) {
+  return query(getProvisioningJobsQueryKey(page), `/admin/proxy/provisioning-jobs?page=${page}`, getAccessToken, config);
 }
 export function useProxySettings(config?: QueryConfig<ProxyPriceSetting[]>) {
   return query(getProxySettingsQueryKey(), '/admin/proxy/settings', getAccessToken, config);

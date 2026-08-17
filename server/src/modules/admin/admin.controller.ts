@@ -32,6 +32,7 @@ export class AdminController {
   @Patch('proxy/providers/:id') updateProvider(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateProviderDto) { return this.service.updateProvider(id, body); }
   @Delete('proxy/providers/:id') @HttpCode(204) deleteProvider(@Param('id', ParseIntPipe) id: number) { return this.service.deleteProvider(id); }
   @Get('proxy/provider-api-keys') providerApiKeys() { return this.service.providerApiKeys(); }
+  @Get('proxy/provisioning-jobs') provisioningJobs(@Query('page') page?: string) { return this.service.provisioningJobs(Number(page)); }
   @Post('proxy/providers/:id/api-keys') createProviderApiKey(@Param('id', ParseIntPipe) id: number, @Body() body: CreateProviderApiKeyDto) { return this.service.createProviderApiKey(id, body); }
   @Patch('proxy/provider-api-keys/:id') updateProviderApiKey(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateProviderApiKeyDto) { return this.service.updateProviderApiKey(id, body); }
   @Delete('proxy/provider-api-keys/:id') @HttpCode(204) revokeProviderApiKey(@Param('id', ParseIntPipe) id: number) { return this.service.revokeProviderApiKey(id); }

@@ -335,6 +335,40 @@ export class AdminService {
     });
   }
 
+  async provisioningJobs(requestedPage?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = 2;
+    const from = (page - 1) * pageSize;
+    const result = await this.db.client.from('proxy_provisioning_jobs')
+      .select('id,node_id,action,status,attempts,max_attempts,run_after,locked_by,locked_until,last_error,created_at,updated_at,proxy_nodes(id,order_id,status,error_message,provider_id,proxy_providers(name,code))', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    const rows = this.db.unwrap(result, 'Unable to load provisioning jobs').map((row: any) => {
+      const node = Array.isArray(row.proxy_nodes) ? row.proxy_nodes[0] : row.proxy_nodes;
+      const provider = Array.isArray(node?.proxy_providers) ? node.proxy_providers[0] : node?.proxy_providers;
+      return {
+        id: row.id,
+        nodeId: row.node_id,
+        orderId: node?.order_id || null,
+        action: row.action,
+        status: row.status,
+        attempts: Number(row.attempts || 0),
+        maxAttempts: Number(row.max_attempts || 0),
+        runAfter: row.run_after,
+        lockedBy: row.locked_by || null,
+        lockedUntil: row.locked_until || null,
+        error: row.last_error || node?.error_message || null,
+        nodeStatus: node?.status || null,
+        providerName: provider?.name || null,
+        providerCode: provider?.code || null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
+    const total = result.count || 0;
+    return { items: rows, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
   async createProviderApiKey(providerId: number, dto: CreateProviderApiKeyDto) {
     const provider = await this.db.client.from('proxy_providers').select('id,code').eq('id', providerId).maybeSingle();
     if (!this.db.unwrap(provider, 'Unable to validate provider')) throw new NotFoundException('Provider not found');
