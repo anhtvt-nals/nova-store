@@ -43,6 +43,8 @@ Migration `202608140007_security_hardening.sql` must be applied after the provis
 
 Migration `202608140008_dynamic_proxy_allocation.sql` removes static resource allocation from proxy checkout. Creating an order records only product, node count, rental duration, price, and payment state. A `proxy_nodes` row, provider capacity lease, and unique tunnel endpoint are created only after an administrator approves that individual node order. Configure `GOST_PUBLIC_HOST` and the `GOST_TUNNEL_PORT_MIN`/`GOST_TUNNEL_PORT_MAX` pool for the master VPS.
 
+Migration `202608170007_dynamic_provider_api_key_capacity.sql` makes active provider API-key limits the allocatable sandbox capacity. Set **Max sandboxes for this key** when adding or editing each key (for example, `10`); use the `∞` action on a Provider to remove its aggregate cap, or retain a Provider max only when an explicit cross-key safety ceiling is required. Replacement slots remain reserved across the provider key pool.
+
 ### US Static Residential Proxy
 
 The static-residential module is isolated from sandbox proxy provisioning. Each non-trial order receives exactly five stable public SOCKS5 ports, shares a selected 1GB, 3GB, or 5GB total traffic quota, and swaps each hidden upstream SOCKS5 endpoint every hour. End users only receive their Nodenesia credential and the master hostname; imported upstream credentials are encrypted and never sent to a client.

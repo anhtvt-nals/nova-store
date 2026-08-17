@@ -4,7 +4,7 @@ import { createCipheriv, createHash, randomBytes, randomInt } from 'node:crypto'
 import { mapOrder } from '../../common/mappers';
 import { DatabaseService } from '../database/database.service';
 import type { AuthUser } from '../auth/auth.types';
-import type { CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateProductDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import type { CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateProductDto, UpdateProviderApiKeyDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 const orderSelect = 'id,profile_id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,profiles(email),products(code,name,service_type),resources(name)';
 
@@ -153,6 +153,8 @@ export class AdminService {
   }
 
   async adjustCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
+    if (!Number.isFinite(amount) || amount === 0) throw new BadRequestException('Credit adjustment cannot be zero');
+    if (amount < 0 && !note.trim()) throw new BadRequestException('A deduction note is required');
     const result = await this.db.client.rpc('grant_profile_credits', {
       target_profile_id: profileId, credit_amount: amount, entry_type: amount > 0 ? 'admin_grant' : 'admin_adjustment', entry_note: note, actor_profile_id: actorProfileId, entry_reference: null,
     });
@@ -172,6 +174,14 @@ export class AdminService {
     const creditAmount = Number((currency === 'USD' ? amount * creditsPerUsd : (amount / usdToIdrRate) * creditsPerUsd).toFixed(2));
     if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new BadRequestException('Top-up amount is too small');
     return this.adjustCredit(profileId, creditAmount, note, actorProfileId);
+  }
+
+  async deductCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Credit deduction must be greater than zero');
+    if (!note.trim()) throw new BadRequestException('A deduction note is required');
+    // grant_profile_credits locks the wallet and rejects a negative result, so
+    // concurrent checkout cannot make a balance fall below zero.
+    return this.adjustCredit(profileId, -amount, note.trim(), actorProfileId);
   }
 
   async categories() {
@@ -305,8 +315,8 @@ export class AdminService {
     return { id: row.id, code: row.code, name: row.name, apiBaseUrl: row.api_base_url, status: row.status, maxSandboxes: row.max_sandboxes, reservedReplacementSlots: row.reserved_replacement_slots, maxConcurrentProvisions: row.max_concurrent_provisions };
   }
 
-  private validateProviderCapacity(maxSandboxes?: number, reservedReplacementSlots?: number) {
-    if (maxSandboxes !== undefined && reservedReplacementSlots !== undefined && reservedReplacementSlots >= maxSandboxes) {
+  private validateProviderCapacity(maxSandboxes?: number | null, reservedReplacementSlots?: number) {
+    if (maxSandboxes !== undefined && maxSandboxes !== null && reservedReplacementSlots !== undefined && reservedReplacementSlots >= maxSandboxes) {
       throw new BadRequestException('Reserved replacement slots must be lower than max sandboxes');
     }
   }
@@ -318,10 +328,10 @@ export class AdminService {
   }
 
   async providerApiKeys() {
-    const result = await this.db.client.from('provider_api_keys').select('id,provider_id,label,key_prefix,key_last4,status,created_at,revoked_reason,proxy_providers(name)').order('created_at', { ascending: false });
+    const result = await this.db.client.from('provider_api_keys').select('id,provider_id,label,key_prefix,key_last4,status,max_sandboxes,created_at,revoked_reason,proxy_providers(name)').order('created_at', { ascending: false });
     return this.db.unwrap(result, 'Unable to load provider API keys').map((row: any) => {
       const provider = Array.isArray(row.proxy_providers) ? row.proxy_providers[0] : row.proxy_providers;
-      return { id: row.id, providerId: row.provider_id, providerName: provider?.name || 'Unknown', label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at, revokedReason: row.revoked_reason || null };
+      return { id: row.id, providerId: row.provider_id, providerName: provider?.name || 'Unknown', label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, maxSandboxes: row.max_sandboxes, createdAt: row.created_at, revokedReason: row.revoked_reason || null };
     });
   }
 
@@ -337,8 +347,9 @@ export class AdminService {
       label: dto.label,
       key_prefix: githubOwner ? `${githubOwner}|` : blaxelWorkspace ? `${blaxelWorkspace}|` : storedSecret.slice(0, 4),
       key_last4: storedSecret.slice(-4),
+      max_sandboxes: dto.maxSandboxes ?? 10,
       ...encrypted,
-    }).select('id,provider_id,label,key_prefix,key_last4,status,created_at').single();
+    }).select('id,provider_id,label,key_prefix,key_last4,status,max_sandboxes,created_at').single();
     const row = this.db.unwrap(result, 'Unable to save provider API key');
     if (githubOwner) {
       const repository = `nodenesia-gost-${row.id}`;
@@ -351,7 +362,16 @@ export class AdminService {
         throw error;
       }
     }
-    return { id: row.id, providerId: row.provider_id, label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, createdAt: row.created_at };
+    return { id: row.id, providerId: row.provider_id, label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, maxSandboxes: row.max_sandboxes, createdAt: row.created_at };
+  }
+
+  async updateProviderApiKey(id: number, dto: UpdateProviderApiKeyDto) {
+    const result = await this.db.client.from('provider_api_keys').update({ max_sandboxes: dto.maxSandboxes }).eq('id', id)
+      .select('id,provider_id,label,key_prefix,key_last4,status,max_sandboxes,created_at,revoked_reason,proxy_providers(name)').maybeSingle();
+    const row: any = this.db.unwrap(result, 'Unable to update provider API key');
+    if (!row) throw new NotFoundException('Provider API key not found');
+    const provider = Array.isArray(row.proxy_providers) ? row.proxy_providers[0] : row.proxy_providers;
+    return { id: row.id, providerId: row.provider_id, providerName: provider?.name || 'Unknown', label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, maxSandboxes: row.max_sandboxes, createdAt: row.created_at, revokedReason: row.revoked_reason || null };
   }
 
   private githubOwner(secret: string) {

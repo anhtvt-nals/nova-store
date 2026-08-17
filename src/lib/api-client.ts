@@ -246,7 +246,7 @@ export type ProxyProviderInput = {
   code?: string;
   apiBaseUrl?: string;
   status?: string;
-  maxSandboxes?: number;
+  maxSandboxes?: number | null;
   reservedReplacementSlots?: number;
   maxConcurrentProvisions?: number;
 };
@@ -257,6 +257,7 @@ export interface ProviderApiKey {
   label: string;
   maskedKey: string;
   status: 'active' | 'revoked';
+  maxSandboxes: number | null;
   createdAt: string;
   revokedReason?: string | null;
 }
@@ -586,8 +587,11 @@ export function useUpdateProvider(options?: MutationConfig<ProxyProvider, { id: 
 export function useDeleteProvider(options?: MutationConfig<void, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request<void>(`/admin/proxy/providers/${id}`, getAccessToken, { method: 'DELETE' }), ...options });
 }
-export function useCreateProviderApiKey(options?: MutationConfig<ProviderApiKey, { providerId: number; data: { label: string; secret: string } }>) {
+export function useCreateProviderApiKey(options?: MutationConfig<ProviderApiKey, { providerId: number; data: { label: string; secret: string; maxSandboxes?: number } }>) {
   return useMutation({ mutationFn: ({ providerId, data }) => request<ProviderApiKey>(`/admin/proxy/providers/${providerId}/api-keys`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useUpdateProviderApiKey(options?: MutationConfig<ProviderApiKey, { id: number; data: { maxSandboxes: number } }>) {
+  return useMutation({ mutationFn: ({ id, data }) => request<ProviderApiKey>(`/admin/proxy/provider-api-keys/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
 }
 export function useRevokeProviderApiKey(options?: MutationConfig<void, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request<void>(`/admin/proxy/provider-api-keys/${id}`, getAccessToken, { method: 'DELETE' }), ...options });
@@ -603,4 +607,7 @@ export function useAdjustCredit(options?: MutationConfig<{ profileId: number; ba
 }
 export function useAddCreditTopUp(options?: MutationConfig<{ profileId: number; balance: number }, { id: number; data: { amount: number; currency: 'USD' | 'IDR'; note?: string } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<{ profileId: number; balance: number }>(`/admin/credits/${id}/top-up`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useDeductCredit(options?: MutationConfig<{ profileId: number; balance: number }, { id: number; data: { amount: number; note: string } }>) {
+  return useMutation({ mutationFn: ({ id, data }) => request<{ profileId: number; balance: number }>(`/admin/credits/${id}/deduct`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }

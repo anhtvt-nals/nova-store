@@ -19,6 +19,10 @@ export class AddCreditTopUpDto {
   @IsIn(['USD', 'IDR']) currency: 'USD' | 'IDR';
   @IsOptional() @IsString() @Length(0, 300) note?: string;
 }
+export class DeductCreditDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) amount: number;
+  @IsString() @Length(1, 300) note: string;
+}
 export class CreateApiKeyDto {
   @IsString() @Length(2, 100) label: string;
 }
@@ -83,7 +87,7 @@ export class CreateProviderDto {
   @IsString() @Length(2, 60) @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) code: string;
   @IsOptional() @IsString() @Length(0, 500) apiBaseUrl?: string;
   @IsOptional() @IsIn(['active', 'disabled']) status?: 'active' | 'disabled';
-  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number;
+  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number | null;
   @IsOptional() @IsInt() @Min(0) reservedReplacementSlots?: number;
   @IsOptional() @IsInt() @Min(1) maxConcurrentProvisions?: number;
 }
@@ -93,7 +97,7 @@ export class UpdateProviderDto {
   @IsOptional() @IsString() @Length(2, 60) @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) code?: string;
   @IsOptional() @IsString() @Length(0, 500) apiBaseUrl?: string;
   @IsOptional() @IsIn(['active', 'disabled']) status?: 'active' | 'disabled';
-  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number;
+  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number | null;
   @IsOptional() @IsInt() @Min(0) reservedReplacementSlots?: number;
   @IsOptional() @IsInt() @Min(1) maxConcurrentProvisions?: number;
 }
@@ -101,6 +105,11 @@ export class UpdateProviderDto {
 export class CreateProviderApiKeyDto {
   @IsString() @Length(2, 100) label: string;
   @IsString() @Length(8, 1000) secret: string;
+  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number;
+}
+
+export class UpdateProviderApiKeyDto {
+  @IsInt() @Min(1) maxSandboxes: number;
 }
 
 export class CreateBlaxelEgressGatewayDto {
