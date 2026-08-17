@@ -21,6 +21,7 @@ import type {
 } from '@/lib/api-client';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
+import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
@@ -793,28 +794,29 @@ function AdminCreditsPage() {
 
 function AdminStaticResidentialPage() {
   const [page, setPage] = useState(1);
-  const inventory = useStaticResidentialInventory(page, 5);
+  const inventory = useStaticResidentialInventory(page, 10);
   const pricing = useStaticResidentialPricing();
   const importer = useImportStaticResidentialInventory();
   const updatePrice = useUpdateStaticResidentialPricing();
   const qc = useQueryClient();
+  const { toast } = useToast();
   const [content, setContent] = useState('');
   const [label, setLabel] = useState('');
   const [price, setPrice] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
   useEffect(() => { if (pricing.data) setPrice(String(pricing.data.pricePerGbDay)); }, [pricing.data?.pricePerGbDay]);
   useEffect(() => { if (inventory.data && page > inventory.data.totalPages) setPage(inventory.data.totalPages); }, [inventory.data?.totalPages, page]);
   const savePrice = () => updatePrice.mutate({ data: { pricePerGbDay: Number(price) } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getStaticResidentialPricingQueryKey() }), onError: error => window.alert(error.message) });
-  const submitImport = () => importer.mutate({ data: { content, label: label || undefined } }, { onSuccess: result => { setContent(''); setPage(1); window.alert(`Imported ${result.imported} proxy${result.imported === 1 ? '' : 'ies'}; skipped ${result.skipped}.`); void qc.invalidateQueries({ queryKey: getStaticResidentialInventoryQueryKey() }); }, onError: error => window.alert(error.message) });
+  const submitImport = () => importer.mutate({ data: { content, label: label || undefined } }, { onSuccess: result => { setContent(''); setLabel(''); setPage(1); setImportOpen(false); toast({ title: 'Proxies imported', description: `${result.imported} imported · ${result.skipped} skipped.` }); void qc.invalidateQueries({ queryKey: getStaticResidentialInventoryQueryKey() }); }, onError: error => toast({ variant: 'destructive', title: 'Import failed', description: error.message }) });
   const available = inventory.data?.available || 0;
-  return <PageLayout admin eyebrow="static residential" title="US Static Residential Proxy" body="Import upstream SOCKS5 endpoints securely. Customer pages never receive this inventory or its credentials.">
+  return <><PageLayout admin eyebrow="static residential" title="US Static Residential Proxy" body="Import upstream SOCKS5 endpoints securely. Customer pages never receive this inventory or its credentials.">
     <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
       <div className="space-y-5">
         <div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h2 className="font-extrabold">Fixed package pricing</h2><p className="mt-2 text-sm leading-6 text-slate-500">Every order has exactly 5 ports and one shared 5GB quota. Price is per GB/day, so checkout is 5 × days × this rate.</p><label className="mt-5 block text-sm font-bold">USD per GB / day<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} /></label><Button className="mt-4" disabled={updatePrice.isPending || !(Number(price) > 0)} onClick={savePrice}>{updatePrice.isPending ? 'Saving…' : 'Save price'}</Button></div>
-        <div className="rounded-3xl border border-[#dbe7e9] bg-white p-6"><h2 className="font-extrabold">Import upstream proxies</h2><p className="mt-2 text-sm leading-6 text-slate-500">One SOCKS5 URL per line. Passwords are encrypted at rest and are never returned by this page.</p><input className="mt-4 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" placeholder="Optional batch label" value={label} onChange={event => setLabel(event.target.value)} /><textarea className="mt-3 min-h-48 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 font-mono text-xs outline-none focus:border-[#f46c43]" placeholder={'socks5://user:pass@host:port\nsocks5://user:pass@host:port'} value={content} onChange={event => setContent(event.target.value)} /><Button className="mt-3 w-full" disabled={!content.trim() || importer.isPending} onClick={submitImport}>{importer.isPending ? 'Importing…' : 'Import TXT list'}</Button></div>
       </div>
-      <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4"><div><h2 className="font-extrabold">Inventory</h2><p className="mt-1 text-xs text-slate-500">{available} available · 5 required for every new order</p></div><Badge tone={available >= 5 ? 'green' : 'red'}>{available >= 5 ? 'ready' : 'low capacity'}</Badge></div><State loading={inventory.isLoading} error={inventory.isError} onRetry={() => inventory.refetch()} empty={!inventory.data?.items.length}><div className="divide-y divide-[#edf2f3]">{inventory.data?.items.map(item => <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{item.label || 'Imported proxy'} · #{item.id}</p><p className="mono mt-1 truncate text-[10px] text-slate-500">{item.host}:{item.port} · {item.username}</p></div><Badge tone={item.status === 'available' ? 'green' : item.status === 'assigned' ? 'orange' : 'red'}>{item.status}</Badge></div>)}</div><Pagination page={page} total={inventory.data?.totalPages || 1} onChange={setPage} /></State></div>
+      <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="flex items-center justify-between gap-3 border-b border-[#edf2f3] px-5 py-4"><div><h2 className="font-extrabold">Inventory</h2><p className="mt-1 text-xs text-slate-500">{available} available · 5 required for every new order</p></div><div className="flex items-center gap-2"><Button variant="outline" className="min-h-9 px-3 text-xs" onClick={() => setImportOpen(true)}><Plus size={14} /> Import proxies</Button><Badge tone={available >= 5 ? 'green' : 'red'}>{available >= 5 ? 'ready' : 'low capacity'}</Badge></div></div><State loading={inventory.isLoading} error={inventory.isError} onRetry={() => inventory.refetch()} empty={!inventory.data?.items.length}><div className="divide-y divide-[#edf2f3]">{inventory.data?.items.map(item => <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{item.label || 'Imported proxy'} · #{item.id}</p><p className="mono mt-1 truncate text-[10px] text-slate-500">{item.host}:{item.port} · {item.username}</p></div><Badge tone={item.status === 'available' ? 'green' : item.status === 'assigned' ? 'orange' : 'red'}>{item.status}</Badge></div>)}</div><Pagination page={page} total={inventory.data?.totalPages || 1} onChange={setPage} /></State></div>
     </div>
-  </PageLayout>;
+  </PageLayout>{importOpen && <Modal title="Import upstream proxies" onClose={() => setImportOpen(false)}><p className="text-sm leading-6 text-slate-500">Paste one SOCKS5 URL per line. Upstream passwords are encrypted and never returned to the browser.</p><input autoFocus className="mt-4 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" placeholder="Optional batch label" value={label} onChange={event => setLabel(event.target.value)} /><textarea className="mt-3 min-h-52 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 font-mono text-xs outline-none focus:border-[#f46c43]" placeholder={'socks5://user:pass@host:port\nsocks5://user:pass@host:port'} value={content} onChange={event => setContent(event.target.value)} /><div className="mt-4 flex gap-3"><Button variant="outline" className="flex-1" disabled={importer.isPending} onClick={() => setImportOpen(false)}>Cancel</Button><Button className="flex-1" disabled={!content.trim() || importer.isPending} onClick={submitImport}>{importer.isPending ? 'Importing…' : 'Import TXT list'}</Button></div></Modal>}</>;
 }
 
 function ClientDockNav({ active }: { active: 'services' | 'proxy' | 'static' }) {
