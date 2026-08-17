@@ -137,12 +137,24 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     }
     if (!parsed.length) throw new BadRequestException('No valid SOCKS5 proxy was found in the import file');
     if (errors.length) throw new BadRequestException(`Invalid SOCKS5 entries: ${errors.slice(0, 10).join(', ')}`);
-    const rows = parsed.map(proxy => {
+    // Keep the final occurrence from a TXT file. PostgreSQL cannot upsert the
+    // same conflict target twice in one statement.
+    const unique = [...new Map(parsed.map(proxy => [`${proxy.host}\u0000${proxy.port}\u0000${proxy.username}`, proxy])).values()];
+    const rows = unique.map(proxy => {
       const encrypted = this.secrets.encrypt(proxy.password);
-      return { label: label || null, host: proxy.host, port: proxy.port, username: proxy.username, password_ciphertext: encrypted.ciphertext, password_iv: encrypted.iv, password_tag: encrypted.tag };
+      return {
+        ...(label ? { label } : {}), host: proxy.host, port: proxy.port, username: proxy.username,
+        password_ciphertext: encrypted.ciphertext, password_iv: encrypted.iv, password_tag: encrypted.tag,
+        status: 'available', health_failure_count: 0, last_health_checked_at: null, last_health_error: null,
+      };
     });
-    const result = await this.db.client.from('static_residential_proxies').upsert(rows, { onConflict: 'host,port,username', ignoreDuplicates: true }).select('id');
-    return { imported: this.db.unwrap(result, 'Unable to import static residential proxies').length, skipped: parsed.length - (result.data?.length || 0) };
+    const result = await this.db.client.from('static_residential_proxies').upsert(rows, { onConflict: 'host,port,username' }).select('id');
+    const ids = this.db.unwrap(result, 'Unable to import static residential proxies').map((row: any) => Number(row.id));
+    const affectedResult = await this.db.client.from('static_residential_nodes').select('order_id')
+      .in('upstream_proxy_id', ids).eq('status', 'active');
+    const affectedOrders = [...new Set(this.db.unwrap(affectedResult, 'Unable to find static residential orders for updated upstreams').map((row: any) => Number(row.order_id)))];
+    for (const orderId of affectedOrders) await this.provisionOrder(orderId);
+    return { createdOrUpdated: ids.length, duplicatesInFile: parsed.length - unique.length, reconfiguredOrders: affectedOrders.length };
   }
 
   async checkInventoryStatus() {
