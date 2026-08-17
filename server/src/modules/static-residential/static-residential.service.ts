@@ -198,17 +198,15 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async rotateNode(nodeId: number, orderId: number) {
-    const result = await this.db.client.rpc('rotate_static_residential_node', { target_node_id: nodeId });
+    const result = await this.db.client.rpc('rotate_static_residential_node_v2', { target_node_id: nodeId });
     if (result.error) { this.logger.warn(`Static node ${nodeId} rotation deferred: ${result.error.message}`); return; }
     await this.provisionOrder(orderId);
   }
 
   private async stopOrder(orderId: number, nodes: any[], status: 'expired' | 'quota_exceeded') {
     await this.gost.removeOrder(orderId, nodes.map(node => ({ id: node.id, serviceName: node.service_name })));
-    const proxyIds = nodes.map(node => node.upstream_proxy_id);
     await this.db.client.from('static_residential_nodes').update({ status, updated_at: new Date().toISOString() }).eq('order_id', orderId);
     await this.db.client.from('static_residential_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId);
-    if (proxyIds.length) await this.db.client.from('static_residential_proxies').update({ status: 'available', assigned_order_id: null, updated_at: new Date().toISOString() }).in('id', proxyIds);
   }
 
   private gostNode(node: any, order: any, credential: { username: string; password: string }): StaticGostNode {
