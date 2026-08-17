@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
@@ -14,7 +14,7 @@ export class AdminController {
   @Post('users') createUser(@Body() body: CreateUserDto) { return this.service.createUser(body); }
   @Patch('users/:id') updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserDto) { return this.service.updateUser(id, body); }
   @Post('users/:id/reset-password') resetUserPassword(@Param('id', ParseIntPipe) id: number) { return this.service.resetUserPassword(id); }
-  @Get('credits') credits() { return this.service.credits(); }
+  @Get('credits') credits(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.credits(Number(page), Number(pageSize)); }
   @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
   @Post('credits/:id/top-up') topUpCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AddCreditTopUpDto) { return this.service.topUpCredit(id, body.amount, body.currency, body.note || '', user.profileId); }
   @Delete('users/:id') @HttpCode(204) deleteUser(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.service.deleteUser(id, user); }
@@ -44,6 +44,8 @@ export class AdminController {
   @Get('api-keys') apiKeys() { return this.service.apiKeys(); }
   @Post('api-keys') createApiKey(@CurrentUser() user: AuthUser, @Body() body: CreateApiKeyDto) { return this.service.createApiKey(user.profileId, body.label); }
   @Delete('api-keys/:id') @HttpCode(204) revokeApiKey(@Param('id', ParseIntPipe) id: number) { return this.service.revokeApiKey(id); }
-  @Get('orders') orders() { return this.service.orders(); }
+  @Get('orders') orders(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return page === undefined ? this.service.orders() : this.service.orders(Number(page), Number(pageSize));
+  }
   @Patch('orders/:id/status') updateOrder(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: UpdateOrderStatusDto) { return this.service.updateOrder(id, body.status, user.profileId); }
 }

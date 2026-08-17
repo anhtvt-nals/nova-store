@@ -104,9 +104,20 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     return { filename: 'nodenesia-static-residential-socks5.txt', content: content ? `${content}\n` : '', count: connections.length };
   }
 
-  async adminInventory() {
-    const result = await this.db.client.from('static_residential_proxies').select('id,label,host,port,username,status,assigned_order_id,created_at,updated_at').order('created_at', { ascending: false });
-    return this.db.unwrap(result, 'Unable to load static residential inventory').map((item: any) => ({ ...item, username: this.mask(item.username) }));
+  async adminInventory(requestedPage?: number, requestedPageSize?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
+    const from = (page - 1) * pageSize;
+    const [inventory, availability] = await Promise.all([
+      this.db.client.from('static_residential_proxies')
+        .select('id,label,host,port,username,status,assigned_order_id,created_at,updated_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(from, from + pageSize - 1),
+      this.db.client.from('static_residential_proxies').select('id', { count: 'exact', head: true }).eq('status', 'available'),
+    ]);
+    const items = this.db.unwrap(inventory, 'Unable to load static residential inventory').map((item: any) => ({ ...item, username: this.mask(item.username) }));
+    if (availability.error) throw new BadRequestException('Unable to load static residential inventory availability');
+    const total = inventory.count || 0;
+    return { items, total, available: availability.count || 0, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   async importInventory(content: string, label?: string) {

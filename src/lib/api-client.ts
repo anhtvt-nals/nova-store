@@ -98,9 +98,11 @@ export interface StaticResidentialOrder {
 }
 export interface StaticResidentialQuote { nodeCount: 5; quotaBytes: number; quotaGb: 1 | 3 | 5; rentalDays: number; pricePerGbDay: number; amount: number; creditCost: number; availableNodes: number; canFulfill: boolean; }
 export interface StaticResidentialInventoryItem { id: number; label: string | null; host: string; port: number; username: string; status: 'available' | 'assigned' | 'disabled'; assigned_order_id: number | null; created_at: string; updated_at: string; }
+export interface PaginatedStaticResidentialInventory { items: StaticResidentialInventoryItem[]; total: number; available: number; page: number; pageSize: number; totalPages: number; }
 export interface StaticResidentialPricing { pricePerGbDay: number; fixedNodeCount: 5; fixedQuotaGb: 5; }
 
 export interface AdminOrder extends Order { customerEmail: string; }
+export interface PaginatedAdminOrders { items: AdminOrder[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface User {
   id: number;
   name: string;
@@ -271,6 +273,7 @@ export interface GeneralSettings {
   trialCreditAmount: number;
 }
 export interface CreditWallet { id: number; name: string; email: string; isTrial: boolean; balance: number; updatedAt: string | null; }
+export interface PaginatedCreditWallets { items: CreditWallet[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface CatalogSettings {
   brandName: string;
   usdToIdrRate: number;
@@ -326,19 +329,24 @@ export const getOrderQuoteQueryKey = (productId: number, nodeCount: number, rent
 export const getCreditBalanceQueryKey = () => ['credit-balance'] as const;
 export const getStaticResidentialOrdersQueryKey = () => ['static-residential-orders'] as const;
 export const getStaticResidentialQuoteQueryKey = (days: number, quotaGb: number) => ['static-residential-quote', days, quotaGb] as const;
-export const getStaticResidentialInventoryQueryKey = () => ['static-residential-inventory'] as const;
+export const getStaticResidentialInventoryQueryKey = (page?: number, pageSize?: number) => page === undefined
+  ? ['static-residential-inventory'] as const
+  : ['static-residential-inventory', page, pageSize] as const;
 export const getStaticResidentialPricingQueryKey = () => ['static-residential-pricing'] as const;
 export const getGetAdminOverviewQueryKey = () => ['admin-overview'] as const;
 export const getListUsersQueryKey = () => ['users'] as const;
 export const getListSandboxKeysQueryKey = () => ['sandbox-keys'] as const;
 export const getListAdminOrdersQueryKey = () => ['admin-orders'] as const;
+export const getPaginatedAdminOrdersQueryKey = (page: number, pageSize: number) => ['admin-orders', page, pageSize] as const;
 export const getListCategoriesQueryKey = () => ['admin-categories'] as const;
 export const getListAdminProductsQueryKey = () => ['admin-products'] as const;
 export const getListProvidersQueryKey = () => ['proxy-providers'] as const;
 export const getListProviderApiKeysQueryKey = () => ['provider-api-keys'] as const;
 export const getProxySettingsQueryKey = () => ['proxy-settings'] as const;
 export const getGeneralSettingsQueryKey = () => ['general-settings'] as const;
-export const getCreditWalletsQueryKey = () => ['credit-wallets'] as const;
+export const getCreditWalletsQueryKey = (page?: number, pageSize?: number) => page === undefined
+  ? ['credit-wallets'] as const
+  : ['credit-wallets', page, pageSize] as const;
 export const getCurrentUserQueryKey = () => ['current-user'] as const;
 
 export function useListPlans(config?: QueryConfig<Plan[]>) {
@@ -439,7 +447,9 @@ export function useListStaticResidentialOrders(config?: QueryConfig<StaticReside
 export function useStaticResidentialQuote(rentalDays: number, quotaGb: number, config?: QueryConfig<StaticResidentialQuote>) {
   return useQuery<StaticResidentialQuote, Error>({ queryKey: config?.query?.queryKey || getStaticResidentialQuoteQueryKey(rentalDays, quotaGb), queryFn: () => request('/static-residential/quote', getAccessToken, { method: 'POST', body: JSON.stringify({ rentalDays, quotaGb }) }), ...config?.query });
 }
-export function useStaticResidentialInventory(config?: QueryConfig<StaticResidentialInventoryItem[]>) { return query(getStaticResidentialInventoryQueryKey(), '/admin/static-residential/inventory', getAccessToken, config); }
+export function useStaticResidentialInventory(page = 1, pageSize = 5, config?: QueryConfig<PaginatedStaticResidentialInventory>) {
+  return query(getStaticResidentialInventoryQueryKey(page, pageSize), `/admin/static-residential/inventory?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
+}
 export function useStaticResidentialPricing(config?: QueryConfig<StaticResidentialPricing>) { return query(getStaticResidentialPricingQueryKey(), '/admin/static-residential/pricing', getAccessToken, config); }
 export function useGetOrderConnection(id: number, nodeId?: number, config?: QueryConfig<ConnectionDetails>) {
   const path = nodeId ? `/orders/${id}/nodes/${nodeId}/connection` : `/orders/${id}/connection`;
@@ -467,6 +477,9 @@ export function useListSandboxKeys(config?: QueryConfig<SandboxKey[]>) {
 export function useListAdminOrders(config?: QueryConfig<AdminOrder[]>) {
   return query(getListAdminOrdersQueryKey(), '/admin/orders', getAccessToken, config);
 }
+export function usePaginatedAdminOrders(page = 1, pageSize = 5, config?: QueryConfig<PaginatedAdminOrders>) {
+  return query(getPaginatedAdminOrdersQueryKey(page, pageSize), `/admin/orders?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
+}
 export function useListCategories(config?: QueryConfig<Category[]>) {
   return query(getListCategoriesQueryKey(), '/admin/categories', getAccessToken, config);
 }
@@ -485,8 +498,8 @@ export function useProxySettings(config?: QueryConfig<ProxyPriceSetting[]>) {
 export function useGeneralSettings(config?: QueryConfig<GeneralSettings>) {
   return query(getGeneralSettingsQueryKey(), '/admin/settings', getAccessToken, config);
 }
-export function useCreditWallets(config?: QueryConfig<CreditWallet[]>) {
-  return query(getCreditWalletsQueryKey(), '/admin/credits', getAccessToken, config);
+export function useCreditWallets(page = 1, pageSize = 5, config?: QueryConfig<PaginatedCreditWallets>) {
+  return query(getCreditWalletsQueryKey(page, pageSize), `/admin/credits?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
 }
 
 export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'credit' } }>) {

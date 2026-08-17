@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
@@ -19,7 +19,9 @@ export class StaticResidentialController {
 @Controller('admin/static-residential')
 export class AdminStaticResidentialController {
   constructor(private readonly service: StaticResidentialService) {}
-  @Get('inventory') inventory() { return this.service.adminInventory(); }
+  @Get('inventory') inventory(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.service.adminInventory(Number(page), Number(pageSize));
+  }
   @Post('inventory/import') import(@Body() body: ImportStaticResidentialProxiesDto) { return this.service.importInventory(body.content, body.label); }
   @Get('pricing') pricing() { return this.service.pricing(); }
   @Patch('pricing') updatePricing(@Body() body: UpdateStaticResidentialPricingDto) { return this.service.updatePricing(body.pricePerGbDay); }

@@ -137,12 +137,19 @@ export class AdminService {
     if (deleted.error) throw deleted.error;
   }
 
-  async credits() {
-    const result = await this.db.client.from('profiles').select('id,name,email,is_trial,credit_wallets(balance,updated_at)').order('created_at', { ascending: false });
-    return this.db.unwrap(result, 'Unable to load credit wallets').map((row: any) => {
+  async credits(requestedPage?: number, requestedPageSize?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
+    const from = (page - 1) * pageSize;
+    const result = await this.db.client.from('profiles')
+      .select('id,name,email,is_trial,credit_wallets(balance,updated_at)', { count: 'exact' })
+      .order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+    const items = this.db.unwrap(result, 'Unable to load credit wallets').map((row: any) => {
       const wallet = Array.isArray(row.credit_wallets) ? row.credit_wallets[0] : row.credit_wallets;
       return { id: row.id, name: row.name, email: row.email, isTrial: row.is_trial, balance: Number(wallet?.balance || 0), updatedAt: wallet?.updated_at || null };
     });
+    const total = result.count || 0;
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   async adjustCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
@@ -619,12 +626,19 @@ export class AdminService {
     if (!this.db.unwrap(result, 'Unable to revoke API key')) throw new NotFoundException('API key not found');
   }
 
-  async orders() {
-    const result = await this.db.client.from('orders').select(orderSelect).order('created_at', { ascending: false });
-    return this.db.unwrap(result, 'Unable to load orders').map((row: any) => {
+  async orders(requestedPage?: number, requestedPageSize?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
+    const result = requestedPage === undefined
+      ? await this.db.client.from('orders').select(orderSelect).order('created_at', { ascending: false })
+      : await this.db.client.from('orders').select(orderSelect, { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    const items = this.db.unwrap(result, 'Unable to load orders').map((row: any) => {
       const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
       return { ...mapOrder(row), customerEmail: profile?.email || 'Unknown customer' };
     });
+    if (requestedPage === undefined) return items;
+    const total = result.count || 0;
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   async updateOrder(id: number, status: 'active' | 'rejected', actorId: number) {
