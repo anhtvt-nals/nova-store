@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy, Download,
-  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, Power, RefreshCw,
+  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
@@ -29,6 +29,7 @@ import { translations, type SiteLocale, type TranslationKey } from '@/lib/i18n';
 import { supabase } from '@/lib/supabase';
 
 const queryClient = new QueryClient();
+const Power = UserCheck;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const communityLinks = {
   telegram: 'https://t.me/+WH5hnlakrEs3ZjFl',
