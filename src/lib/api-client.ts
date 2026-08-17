@@ -311,6 +311,9 @@ async function request<T>(path: string, getToken?: TokenGetter, init?: RequestIn
     },
   });
   if (!response.ok) {
+    // A suspended profile is rejected by the API with 401. Broadcasting this
+    // lets AuthProvider clear the persisted Supabase session in every view.
+    if (response.status === 401 && getToken && typeof window !== 'undefined') window.dispatchEvent(new Event('nodenesia:session-invalid'));
     const body = await response.json().catch(() => null) as { message?: string | string[] } | null;
     const message = Array.isArray(body?.message) ? body.message.join(', ') : body?.message;
     throw new ApiRequestError(message || `Request failed (${response.status})`, response.status);

@@ -1240,6 +1240,14 @@ function AuthCacheInvalidator() {
   return null;
 }
 
+function SessionProfileValidator() {
+  const { user } = useAuth();
+  // Validate a restored browser session on every initial app load. This makes
+  // an account suspended by an admin sign out immediately after reload.
+  useCurrentUser({ query: { enabled: Boolean(user), staleTime: 0, retry: false, refetchOnMount: 'always', refetchOnWindowFocus: false } });
+  return null;
+}
+
 function HomeRedirect() {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-[100dvh] bg-[#142037]" />;
@@ -1285,7 +1293,7 @@ function RouterViews() {
 }
 
 function App() {
-  return <WouterRouter base={basePath}><QueryClientProvider client={queryClient}><AuthProvider><TooltipProvider delayDuration={0}><AuthCacheInvalidator /><RouterViews /><Toaster /></TooltipProvider></AuthProvider></QueryClientProvider></WouterRouter>;
+  return <WouterRouter base={basePath}><QueryClientProvider client={queryClient}><AuthProvider><TooltipProvider delayDuration={0}><AuthCacheInvalidator /><SessionProfileValidator /><RouterViews /><Toaster /></TooltipProvider></AuthProvider></QueryClientProvider></WouterRouter>;
 }
 
 export default App;

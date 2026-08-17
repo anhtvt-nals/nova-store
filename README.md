@@ -14,6 +14,8 @@ Vite/React storefront and dashboard backed by NestJS and Supabase Auth/Postgres.
 
 The Supabase secret key is server-only and must never use a `VITE_` prefix. Browser requests go through Nest; all exposed tables have RLS enabled and direct `anon`/`authenticated` grants revoked.
 
+Browser sessions are capped at three days by `VITE_SESSION_MAX_AGE_DAYS=3`. For matching server-side enforcement, set the Supabase Auth session timebox to `259200` seconds (three days). On every page load, the app validates `/auth/me`; a profile suspended by an administrator receives `401`, clears its local session, and returns to sign-in.
+
 ## Useful commands
 
 ```bash
