@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy, Download,
-  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
+  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogIn, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
@@ -137,7 +137,7 @@ function State({ loading, error, onRetry, children, empty }: { loading?: boolean
 
 function PublicNav() {
   const { t } = useLocalePreferences();
-  return <header className="absolute inset-x-0 top-0 z-20"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10"><Logo inverse /><nav className="hidden items-center gap-8 text-sm text-slate-300 md:flex"><a href="#how-it-works" data-testid="link-how-it-works">{t('howItWorks')}</a><a href="#plans" data-testid="link-plans">{t('plans')}</a><a href="#operators" data-testid="link-operators">{t('forOperators')}</a></nav><div className="flex items-center gap-2"><LocaleSwitcher inverse /><Link href="/sign-in" className="hidden px-3 py-2 text-sm font-bold text-slate-200 hover:text-white sm:inline-flex" data-testid="link-sign-in">{t('signIn')}</Link><Link href="/sign-in" className="inline-flex items-center gap-2 rounded-xl bg-[#f46c43] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-orange-900/20 hover:bg-[#ff7b51]" data-testid="link-get-started">{t('customerLogin')} <ArrowRight size={15} /></Link></div></div></header>;
+  return <header className="absolute inset-x-0 top-0 z-20"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10"><Logo inverse /><nav className="hidden items-center gap-8 text-sm text-slate-300 md:flex"><a href="#how-it-works" data-testid="link-how-it-works">{t('howItWorks')}</a><a href="#plans" data-testid="link-plans">{t('plans')}</a><a href="#operators" data-testid="link-operators">{t('forOperators')}</a></nav><div className="flex items-center gap-2"><LocaleSwitcher inverse /><Link href="/sign-in" className="hidden px-3 py-2 text-sm font-bold text-slate-200 hover:text-white sm:inline-flex" data-testid="link-sign-in">{t('signIn')}</Link><Link href="/sign-in" aria-label={t('customerLogin')} title={t('customerLogin')} className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#f46c43] text-white shadow-lg shadow-orange-900/20 hover:bg-[#ff7b51] sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm sm:font-bold" data-testid="link-get-started"><LogIn size={17} className="sm:hidden" /><span className="hidden sm:inline">{t('customerLogin')}</span><ArrowRight size={15} className="hidden sm:block" /></Link></div></div></header>;
 }
 
 function NetworkOrb() {
