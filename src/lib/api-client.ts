@@ -112,7 +112,7 @@ export interface ProvisioningJobLog {
   id: number; nodeId: number; orderId: number | null; eventType: string; status: string; error: string;
   nodeStatus: RuntimeProxyNodeStatus | null; providerName: string | null; providerCode: string | null; createdAt: string;
 }
-export interface PaginatedProvisioningJobs { items: ProvisioningJobLog[]; total: number; page: number; pageSize: 2; totalPages: number; }
+export interface PaginatedProvisioningJobs { items: ProvisioningJobLog[]; total: number; page: number; pageSize: 20; totalPages: number; }
 export interface User {
   id: number;
   name: string;

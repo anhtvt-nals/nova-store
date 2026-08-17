@@ -16,6 +16,7 @@
     "clean:test-orders": "node scripts/clean-test-orders.mjs",
     "clean:test-runtime": "node scripts/clean-test-orders.mjs",
     "clean:e2b-sandboxes": "node scripts/clean-e2b-sandboxes.mjs",
+    "reset:e2b-runtime": "node scripts/reset-e2b-runtime.mjs",
     "clean:blaxel-gost-tests": "node scripts/clean-blaxel-gost-tests.mjs",
     "test:blaxel-gost": "node scripts/test-blaxel-gost.mjs",
     "test:beam-gost": "node scripts/test-beam-gost.mjs",

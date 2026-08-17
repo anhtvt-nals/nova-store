@@ -45,6 +45,8 @@ Migration `202608140008_dynamic_proxy_allocation.sql` removes static resource al
 
 Migration `202608170007_dynamic_provider_api_key_capacity.sql` makes active provider API-key limits the allocatable sandbox capacity. Set **Max sandboxes for this key** when adding or editing each key (for example, `10`); use the `∞` action on a Provider to remove its aggregate cap, or retain a Provider max only when an explicit cross-key safety ceiling is required. Replacement slots remain reserved across the provider key pool.
 
+To recover from an E2B account-cap incident, stop `nodenesia-api`, apply migrations `202608170007` and `202608170008`, then preview the destructive reset with `npm run reset:e2b-runtime`. The command deletes every sandbox visible to every configured E2B credential, sets each active E2B key to a safe limit (default `10`), releases stale E2B leases, and queues active E2B nodes for replacement. Run the confirmation command printed by the preview only after reviewing its summary.
+
 ### US Static Residential Proxy
 
 The static-residential module is isolated from sandbox proxy provisioning. Each non-trial order receives exactly five stable public SOCKS5 ports, shares a selected 1GB, 3GB, or 5GB total traffic quota, and swaps each hidden upstream SOCKS5 endpoint every hour. End users only receive their Nodenesia credential and the master hostname; imported upstream credentials are encrypted and never sent to a client.

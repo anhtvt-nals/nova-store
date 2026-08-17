@@ -337,7 +337,7 @@ export class AdminService {
 
   async provisioningJobs(requestedPage?: number) {
     const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
-    const pageSize = 2;
+    const pageSize = 20;
     const from = (page - 1) * pageSize;
     // proxy_provisioning_jobs stores only the latest failure and clears it on
     // success/requeue. proxy_node_events is the append-only history, so use it
