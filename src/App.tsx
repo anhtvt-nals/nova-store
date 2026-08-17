@@ -794,7 +794,7 @@ function AdminCreditsPage() {
 
 function AdminStaticResidentialPage() {
   const [page, setPage] = useState(1);
-  const inventory = useStaticResidentialInventory(page, 10);
+  const inventory = useStaticResidentialInventory(page, 5);
   const pricing = useStaticResidentialPricing();
   const importer = useImportStaticResidentialInventory();
   const updatePrice = useUpdateStaticResidentialPricing();
