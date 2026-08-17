@@ -43,7 +43,7 @@ Migration `202608140008_dynamic_proxy_allocation.sql` removes static resource al
 
 ### US Static Residential Proxy
 
-The static-residential module is isolated from sandbox proxy provisioning. Each non-trial order receives exactly five stable public SOCKS5 ports, shares a fixed 5GB total traffic quota, and swaps each hidden upstream SOCKS5 endpoint every hour. End users only receive their Nodenesia credential and the master hostname; imported upstream credentials are encrypted and never sent to a client.
+The static-residential module is isolated from sandbox proxy provisioning. Each non-trial order receives exactly five stable public SOCKS5 ports, shares a selected 1GB, 3GB, or 5GB total traffic quota, and swaps each hidden upstream SOCKS5 endpoint every hour. End users only receive their Nodenesia credential and the master hostname; imported upstream credentials are encrypted and never sent to a client.
 
 Before enabling checkout, install the separate pinned GOST v3.2.6 control plane on the master VPS and keep its API loopback-only:
 
@@ -52,7 +52,7 @@ sudo STATIC_GOST_VERSION=3.2.6 STATIC_GOST_API_ADDR=127.0.0.1:18081 STATIC_GOST_
   bash scripts/install-gost-static-master.sh
 ```
 
-Set `STATIC_RESIDENTIAL_ENABLED=true`, `STATIC_GOST_API_ADDR=127.0.0.1:18081`, `STATIC_GOST_METRICS_ADDR=127.0.0.1:19000`, and `STATIC_GOST_USAGE_POLL_MS=1000` in the API environment. Open only the public static range `10000:20000` in the VPS firewall; do not expose ports `18081` or `19000`. In Admin → Static residential, set the USD/GB/day price and import one `socks5://user:pass@host:port` URL per line. At least five available upstreams are required to create an order.
+Set `STATIC_RESIDENTIAL_ENABLED=true`, `STATIC_GOST_API_ADDR=127.0.0.1:18081`, `STATIC_GOST_METRICS_ADDR=127.0.0.1:19000`, `STATIC_GOST_USAGE_POLL_MS=1000`, and `STATIC_RESIDENTIAL_HEALTH_FAILURE_THRESHOLD=2` in the API environment. Open only the public static range `10000:20000` in the VPS firewall; do not expose ports `18081` or `19000`. In Admin → Static residential, set the USD/GB/day price and import one `socks5://user:pass@host:port` URL per line. At least five available upstreams are required to create an order. The health-check button verifies SOCKS5 username/password and a real egress `CONNECT`; an upstream is disabled only after the configured number of consecutive failures, and can be explicitly re-enabled by an admin.
 
 The installer pins GOST `3.2.6`, creates an unprivileged `nodenesia-gost` user, and configures a conservative 5MB/s per-port bandwidth limit plus connection and request limits. Nest samples GOST's private Prometheus counters once per second and disables an order at its 5GB soft cap. This is intentionally a bounded soft limit: active connections can consume a small amount after the final sample. Imported upstream hostnames are resolved once and stored as validated public IP literals; loopback, private, link-local, multicast, and DNS-rebinding targets are rejected.
 

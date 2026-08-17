@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { createConnection, isIP } from 'node:net';
 import { DatabaseService } from '../database/database.service';
 import { ProxyCredentialService } from '../proxy/proxy-credential.service';
 import { ProxySecretService } from '../proxy/proxy-secret.service';
@@ -17,6 +17,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StaticResidentialService.name);
   private readonly enabled: boolean;
   private readonly usagePollMs: number;
+  private readonly healthFailureThreshold: number;
   private timer?: NodeJS.Timeout;
   private reconciling = false;
   private readonly repairAttemptAt = new Map<number, number>();
@@ -31,6 +32,8 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     this.enabled = config.get<string>('STATIC_RESIDENTIAL_ENABLED') === 'true';
     const configuredPoll = Number(config.get<string>('STATIC_GOST_USAGE_POLL_MS') || 1_000);
     this.usagePollMs = Number.isFinite(configuredPoll) ? Math.max(500, Math.min(configuredPoll, 5_000)) : 1_000;
+    const configuredThreshold = Number(config.get<string>('STATIC_RESIDENTIAL_HEALTH_FAILURE_THRESHOLD') || 2);
+    this.healthFailureThreshold = Number.isInteger(configuredThreshold) ? Math.max(1, Math.min(configuredThreshold, 10)) : 2;
   }
 
   onModuleInit() {
@@ -110,7 +113,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     const from = (page - 1) * pageSize;
     const [inventory, availability] = await Promise.all([
       this.db.client.from('static_residential_proxies')
-        .select('id,label,host,port,username,status,assigned_order_id,created_at,updated_at', { count: 'exact' })
+        .select('id,label,host,port,username,status,assigned_order_id,health_failure_count,last_health_checked_at,last_health_error,created_at,updated_at', { count: 'exact' })
         .order('created_at', { ascending: false }).range(from, from + pageSize - 1),
       this.db.client.from('static_residential_proxies').select('id', { count: 'exact', head: true }).eq('status', 'available'),
     ]);
@@ -142,7 +145,79 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     return { imported: this.db.unwrap(result, 'Unable to import static residential proxies').length, skipped: parsed.length - (result.data?.length || 0) };
   }
 
-  async pricing() { return { pricePerGbDay: await this.pricePerGbDay(), fixedNodeCount: 5, fixedQuotaGb: 5 }; }
+  async checkInventoryStatus() {
+    const result = await this.db.client.from('static_residential_proxies')
+      .select('id,host,port,username,password_ciphertext,password_iv,password_tag,health_failure_count')
+      .neq('status', 'disabled');
+    const proxies = this.db.unwrap(result, 'Unable to load static residential inventory') as any[];
+    const failed: Array<{ id: number; error: string }> = [];
+    const healthyIds: number[] = [];
+    let healthy = 0;
+    const concurrency = 10;
+    for (let offset = 0; offset < proxies.length; offset += concurrency) {
+      const batch = proxies.slice(offset, offset + concurrency);
+      const outcomes = await Promise.all(batch.map(async proxy => {
+        try {
+          if (!this.isPublicAddress(proxy.host)) throw new Error('non-public upstream address');
+          const password = this.secrets.decrypt({ ciphertext: proxy.password_ciphertext, iv: proxy.password_iv, tag: proxy.password_tag });
+          await this.verifySocks5(proxy.host, Number(proxy.port), proxy.username, password);
+          healthyIds.push(Number(proxy.id));
+          return true;
+        } catch (error: any) {
+          const message = String(error?.message || error).slice(0, 500);
+          this.logger.warn(`Static residential upstream #${proxy.id} failed health check: ${message}`);
+          failed.push({ id: Number(proxy.id), error: message });
+          return false;
+        }
+      }));
+      healthy += outcomes.filter(Boolean).length;
+    }
+    let rotationsTriggered = 0;
+    const checkedAt = new Date().toISOString();
+    if (healthyIds.length) {
+      const update = await this.db.client.from('static_residential_proxies')
+        .update({ health_failure_count: 0, last_health_checked_at: checkedAt, last_health_error: null, updated_at: checkedAt }).in('id', healthyIds);
+      this.db.unwrap(update, 'Unable to record healthy static residential proxies');
+    }
+    const failedIds = failed.filter(proxy => Number(proxy.id) > 0).map(proxy => proxy.id);
+    const disableIds = failed.filter(proxy => {
+      const inventory = proxies.find(item => Number(item.id) === proxy.id);
+      return Number(inventory?.health_failure_count || 0) + 1 >= this.healthFailureThreshold;
+    }).map(proxy => proxy.id);
+    await Promise.all(failed.map(async proxy => {
+      const update = await this.db.client.from('static_residential_proxies').update({
+        health_failure_count: (Number(proxies.find(item => Number(item.id) === proxy.id)?.health_failure_count || 0) + 1),
+        last_health_checked_at: checkedAt,
+        last_health_error: proxy.error,
+        updated_at: checkedAt,
+      }).eq('id', proxy.id);
+      this.db.unwrap(update, 'Unable to record failed static residential proxy');
+    }));
+    if (disableIds.length) {
+      const update = await this.db.client.from('static_residential_proxies')
+        .update({ status: 'disabled', updated_at: new Date().toISOString() }).in('id', disableIds);
+      this.db.unwrap(update, 'Unable to disable unhealthy static residential proxies');
+      const nodesResult = await this.db.client.from('static_residential_nodes').select('id,order_id')
+        .in('upstream_proxy_id', disableIds).eq('status', 'active');
+      const nodes = this.db.unwrap(nodesResult, 'Unable to find active static nodes using unhealthy upstreams') as Array<{ id: number; order_id: number }>;
+      for (const node of nodes) {
+        try { if (await this.rotateNode(node.id, node.order_id)) rotationsTriggered += 1; }
+        catch (error: any) { this.logger.warn(`Static node ${node.id} could not be replaced after upstream health check: ${error?.message || error}`); }
+      }
+    }
+    return { checked: proxies.length, healthy, failed: failedIds.length, disabled: disableIds.length, rotationsTriggered, failureThreshold: this.healthFailureThreshold };
+  }
+
+  async enableInventoryProxy(id: number) {
+    const result = await this.db.client.from('static_residential_proxies').update({
+      status: 'available', health_failure_count: 0, last_health_error: null, updated_at: new Date().toISOString(),
+    }).eq('id', id).eq('status', 'disabled').select('id').maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to re-enable static residential proxy');
+    if (!row) throw new NotFoundException('Disabled static residential proxy not found');
+    return { id: Number(row.id), status: 'available' };
+  }
+
+  async pricing() { return { pricePerGbDay: await this.pricePerGbDay(), fixedNodeCount: 5, quotaOptionsGb: QUOTA_OPTIONS_GB }; }
   async updatePricing(pricePerGbDay: number) {
     const result = await this.db.client.from('app_settings').upsert({ key: 'static_residential_price_per_gb_day', value: pricePerGbDay }, { onConflict: 'key' });
     this.db.unwrap(result, 'Unable to update static residential price'); return this.pricing();
@@ -210,8 +285,9 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
 
   private async rotateNode(nodeId: number, orderId: number) {
     const result = await this.db.client.rpc('rotate_static_residential_node_v2', { target_node_id: nodeId });
-    if (result.error) { this.logger.warn(`Static node ${nodeId} rotation deferred: ${result.error.message}`); return; }
+    if (result.error) { this.logger.warn(`Static node ${nodeId} rotation deferred: ${result.error.message}`); return false; }
     await this.provisionOrder(orderId);
+    return true;
   }
 
   private async stopOrder(orderId: number, nodes: any[], status: 'expired' | 'quota_exceeded') {
@@ -228,6 +304,50 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
       username: credential.username, password: credential.password, activatedAt: order.activated_at, expiresAt: order.expires_at };
   }
   private async availableCapacity() { const result = await this.db.client.from('static_residential_proxies').select('id', { count: 'exact', head: true }).eq('status', 'available'); return Number(result.count || 0); }
+  private async verifySocks5(host: string, port: number, username: string, password: string) {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('invalid upstream port');
+    const usernameBytes = Buffer.from(username);
+    const passwordBytes = Buffer.from(password);
+    if (!usernameBytes.length || !passwordBytes.length || usernameBytes.length > 255 || passwordBytes.length > 255) throw new Error('invalid SOCKS5 credentials');
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host, port });
+      let buffer = Buffer.alloc(0);
+      let phase: 'method' | 'auth' | 'connect' = 'method';
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        error ? reject(error) : resolve();
+      };
+      socket.setTimeout(8_000);
+      socket.once('connect', () => socket.write(Buffer.from([0x05, 0x01, 0x02])));
+      socket.on('timeout', () => finish(new Error('connection timed out')));
+      socket.on('error', error => finish(error));
+      socket.on('data', chunk => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (phase === 'method' && buffer.length >= 2) {
+          const [version, method] = [buffer[0], buffer[1]];
+          buffer = buffer.subarray(2);
+          if (version !== 0x05 || method !== 0x02) return finish(new Error('SOCKS5 username/password authentication was rejected'));
+          phase = 'auth';
+          socket.write(Buffer.concat([Buffer.from([0x01, usernameBytes.length]), usernameBytes, Buffer.from([passwordBytes.length]), passwordBytes]));
+        }
+        if (phase === 'auth' && buffer.length >= 2) {
+          const [version, status] = [buffer[0], buffer[1]];
+          if (version !== 0x01 || status !== 0x00) return finish(new Error('SOCKS5 credentials were rejected'));
+          buffer = buffer.subarray(2);
+          phase = 'connect';
+          socket.write(Buffer.from([0x05, 0x01, 0x00, 0x01, 1, 1, 1, 1, 0, 80]));
+        }
+        if (phase === 'connect' && buffer.length >= 2) {
+          const [version, status] = [buffer[0], buffer[1]];
+          if (version !== 0x05 || status !== 0x00) return finish(new Error(`SOCKS5 egress CONNECT failed (${status ?? 'unknown'})`));
+          finish();
+        }
+      });
+    });
+  }
   private async pricePerGbDay() { const result = await this.db.client.from('app_settings').select('value').eq('key', 'static_residential_price_per_gb_day').maybeSingle(); return Number(this.db.unwrap(result, 'Unable to load static residential price')?.value || 0); }
   private async creditRate() { const result = await this.db.client.from('app_settings').select('value').eq('key', 'credits_per_usd').maybeSingle(); return Number(this.db.unwrap(result, 'Unable to load credit conversion')?.value || 100); }
   private validateDays(value: number) { if (!DAYS.includes(value)) throw new BadRequestException('Rental days must be one of: 1, 3, 7, 15, or 30'); }

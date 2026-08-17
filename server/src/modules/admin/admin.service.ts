@@ -630,11 +630,19 @@ export class AdminService {
     const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
     const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
     const result = requestedPage === undefined
-      ? await this.db.client.from('orders').select(orderSelect).order('created_at', { ascending: false })
-      : await this.db.client.from('orders').select(orderSelect, { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+      ? await this.db.client.from('admin_order_queue').select('*').order('created_at', { ascending: false })
+      : await this.db.client.from('admin_order_queue').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     const items = this.db.unwrap(result, 'Unable to load orders').map((row: any) => {
-      const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-      return { ...mapOrder(row), customerEmail: profile?.email || 'Unknown customer' };
+      const isStaticResidential = row.source === 'static_residential';
+      return {
+        id: Number(row.source_id), source: row.source, orderKey: `${row.source}:${row.source_id}`,
+        customerEmail: row.customer_email || 'Unknown customer', planName: row.plan_name,
+        nodeCount: Number(row.node_count), rentalDays: Number(row.rental_days), quotaGb: row.quota_gb === null ? null : Number(row.quota_gb),
+        status: row.status, paymentMethod: row.payment_method, amount: Number(row.amount), createdAt: row.created_at,
+        activatedAt: row.activated_at, expiresAt: row.expires_at,
+        productName: isStaticResidential ? 'Static Residential' : 'SOCKS5 Proxy', productCode: isStaticResidential ? 'static_residential' : 'proxy',
+        serviceType: isStaticResidential ? 'static_residential' : 'proxy', nodeName: isStaticResidential ? '5 stable public ports' : `${row.node_count} proxy nodes`, unitPrice: null,
+      };
     });
     if (requestedPage === undefined) return items;
     const total = result.count || 0;

@@ -23,6 +23,8 @@ export class AdminStaticResidentialController {
     return this.service.adminInventory(Number(page), Number(pageSize));
   }
   @Post('inventory/import') import(@Body() body: ImportStaticResidentialProxiesDto) { return this.service.importInventory(body.content, body.label); }
+  @Post('inventory/check-status') checkStatus() { return this.service.checkInventoryStatus(); }
+  @Post('inventory/:id/enable') enable(@Param('id', ParseIntPipe) id: number) { return this.service.enableInventoryProxy(id); }
   @Get('pricing') pricing() { return this.service.pricing(); }
   @Patch('pricing') updatePricing(@Body() body: UpdateStaticResidentialPricingDto) { return this.service.updatePricing(body.pricePerGbDay); }
 }
