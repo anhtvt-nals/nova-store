@@ -89,7 +89,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
 
   async extend(profileId: number, orderId: number, rentalDays: number) {
     this.validateDays(rentalDays);
-    const result = await this.db.client.rpc('extend_static_residential_order', { target_profile_id: profileId, target_order_id: orderId, requested_days: rentalDays });
+    const result = await this.db.client.rpc('extend_static_residential_order_v2', { target_profile_id: profileId, target_order_id: orderId, requested_days: rentalDays });
     if (result.error) throw new BadRequestException(result.error.message);
     await this.provisionOrder(orderId);
     return (await this.listForUser(profileId)).find(order => order.id === orderId);

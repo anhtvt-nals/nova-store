@@ -493,7 +493,11 @@ export function useCreateOrder(options?: MutationConfig<Order, { data: { product
   return useMutation({ mutationFn: ({ data }) => request<Order>('/orders', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useCreateStaticResidentialOrder(options?: MutationConfig<StaticResidentialOrder, { data: { rentalDays: number; quotaGb?: 1 | 3 | 5 } }>) {
-  return useMutation({ mutationFn: ({ data }) => request<StaticResidentialOrder>('/static-residential/orders', getAccessToken, { method: 'POST', body: JSON.stringify({ ...data, quotaGb: data.quotaGb ?? 5 }) }), ...options });
+  return useMutation({ mutationFn: ({ data }) => {
+    const storedQuota = typeof window === 'undefined' ? null : Number(window.sessionStorage.getItem('static-residential-quota-gb'));
+    const quotaGb = data.quotaGb ?? (storedQuota !== null && [1, 3, 5].includes(storedQuota) ? storedQuota as 1 | 3 | 5 : 5);
+    return request<StaticResidentialOrder>('/static-residential/orders', getAccessToken, { method: 'POST', body: JSON.stringify({ ...data, quotaGb }) });
+  }, ...options });
 }
 export function useExtendStaticResidentialOrder(options?: MutationConfig<StaticResidentialOrder, { id: number; data: { rentalDays: number } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<StaticResidentialOrder>(`/static-residential/orders/${id}/extend`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
