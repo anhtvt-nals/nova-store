@@ -2,6 +2,7 @@ import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validat
 
 export class CreateStaticResidentialOrderDto {
   @IsInt() @IsIn([1, 3, 7, 15, 30]) rentalDays!: number;
+  @IsInt() @IsIn([1, 3, 5]) quotaGb!: number;
 }
 
 export class ExtendStaticResidentialOrderDto {

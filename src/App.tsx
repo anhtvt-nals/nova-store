@@ -1044,8 +1044,9 @@ function StaticResidentialPage() {
   const exporter = useExportStaticResidentialConnections();
   const qc = useQueryClient();
   const [days, setDays] = useState(7);
+  const [quotaGb, setQuotaGb] = useState<1 | 3 | 5>(5);
   const [extending, setExtending] = useState<StaticResidentialOrder | null>(null);
-  const quote = useStaticResidentialQuote(days, { query: { retry: false } });
+  const quote = useStaticResidentialQuote(days, quotaGb, { query: { retry: false } });
   const activeStaticOrder = (orders.data || []).find(order => order.status === 'active' && new Date(order.expiresAt) > new Date());
   const refresh = () => { void qc.invalidateQueries({ queryKey: getStaticResidentialOrdersQueryKey() }); void qc.invalidateQueries({ queryKey: ['credit-balance'] }); };
   const download = () => exporter.mutate(undefined, { onSuccess: ({ filename, content, count }) => { if (!count) return window.alert('No active static residential ports are available.'); const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); }, onError: error => window.alert(error.message) });

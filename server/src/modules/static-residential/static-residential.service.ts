@@ -7,7 +7,8 @@ import { ProxyCredentialService } from '../proxy/proxy-credential.service';
 import { ProxySecretService } from '../proxy/proxy-secret.service';
 import { StaticGostService, type StaticGostNode } from './static-gost.service';
 
-const QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
+const MAX_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
+const QUOTA_OPTIONS_GB = [1, 3, 5];
 const ROTATION_MS = 60 * 60 * 1000;
 const DAYS = [1, 3, 7, 15, 30];
 
@@ -40,13 +41,14 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 
-  async quote(rentalDays: number) {
+  async quote(rentalDays: number, quotaGb: number) {
     this.validateDays(rentalDays);
+    this.validateQuotaGb(quotaGb);
     const price = await this.pricePerGbDay();
     const creditRate = await this.creditRate();
-    const amount = Number((price * 5 * rentalDays).toFixed(4));
+    const amount = Number((price * quotaGb * rentalDays).toFixed(4));
     const available = await this.availableCapacity();
-    return { nodeCount: 5, quotaBytes: QUOTA_BYTES, quotaGb: 5, rentalDays, pricePerGbDay: price, amount,
+    return { nodeCount: 5, quotaBytes: quotaGb * 1024 * 1024 * 1024, quotaGb, rentalDays, pricePerGbDay: price, amount,
       creditCost: Number((Math.ceil(amount * creditRate * 100) / 100).toFixed(2)), availableNodes: available, canFulfill: available >= 5 };
   }
 
@@ -58,7 +60,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     const rows = this.db.unwrap(ordersResult, 'Unable to load static residential orders') as any[];
     return rows.map(row => ({
       id: row.id, status: row.status, nodeCount: row.node_count, quotaBytes: Number(row.quota_bytes), usedBytes: Number(row.used_bytes),
-      quotaGb: 5, pricePerGbDay: Number(row.price_per_gb_day), amount: Number(row.amount), creditCost: Number(row.credit_cost),
+      quotaGb: Number(row.quota_bytes) / (1024 * 1024 * 1024), pricePerGbDay: Number(row.price_per_gb_day), amount: Number(row.amount), creditCost: Number(row.credit_cost),
       activatedAt: row.activated_at, expiresAt: row.expires_at, createdAt: row.created_at,
       nodes: (row.static_residential_nodes || []).sort((a: any, b: any) => a.public_port - b.public_port).map((node: any) => ({
         id: node.id, port: node.public_port, status: node.status, nextRotationAt: node.next_upstream_rotation_at,
@@ -67,10 +69,11 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  async create(profileId: number, rentalDays: number) {
+  async create(profileId: number, rentalDays: number, quotaGb: number) {
     if (!this.enabled) throw new BadRequestException('Static residential proxy is not enabled');
     this.validateDays(rentalDays);
-    const result = await this.db.client.rpc('create_static_residential_order', { target_profile_id: profileId, requested_days: rentalDays });
+    this.validateQuotaGb(quotaGb);
+    const result = await this.db.client.rpc('create_static_residential_order_v2', { target_profile_id: profileId, requested_days: rentalDays, requested_quota_gb: quotaGb });
     if (result.error) throw new BadRequestException(result.error.message);
     const orderId = Number(result.data);
     try { await this.provisionOrder(orderId); }
@@ -138,7 +141,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     if (this.reconciling) return; this.reconciling = true;
     try {
       const now = new Date().toISOString();
-      const ordersResult = await this.db.client.from('static_residential_orders').select('id,status,expires_at,used_bytes,static_residential_nodes(id,service_name,upstream_proxy_id,public_port,status,next_upstream_rotation_at,metric_bytes_observed,static_residential_proxies(host,port,username,password_ciphertext,password_iv,password_tag))').in('status', ['active', 'quota_exceeded', 'expired']);
+      const ordersResult = await this.db.client.from('static_residential_orders').select('id,status,expires_at,quota_bytes,used_bytes,static_residential_nodes(id,service_name,upstream_proxy_id,public_port,status,next_upstream_rotation_at,metric_bytes_observed,static_residential_proxies(host,port,username,password_ciphertext,password_iv,password_tag))').in('status', ['active', 'quota_exceeded', 'expired']);
       const orders = this.db.unwrap(ordersResult, 'Unable to reconcile static residential orders') as any[];
       const usage = await this.gost.usageByService();
       for (const order of orders) {
@@ -173,9 +176,10 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
             await this.db.client.from('static_residential_nodes').update({ metric_bytes_observed: Math.floor(observed), updated_at: now }).eq('id', node.id);
           }
         }
-        const used = Math.min(QUOTA_BYTES, Number(order.used_bytes || 0) + delta);
+        const quotaBytes = Number(order.quota_bytes || MAX_QUOTA_BYTES);
+        const used = Math.min(quotaBytes, Number(order.used_bytes || 0) + delta);
         if (delta > 0) await this.db.client.from('static_residential_orders').update({ used_bytes: used, updated_at: now }).eq('id', order.id);
-        if (used >= QUOTA_BYTES) { await this.stopOrder(order.id, nodes, 'quota_exceeded'); continue; }
+        if (used >= Number(order.quota_bytes || MAX_QUOTA_BYTES)) { await this.stopOrder(order.id, nodes, 'quota_exceeded'); continue; }
         const due = nodes.filter((node: any) => node.status === 'active' && new Date(node.next_upstream_rotation_at) <= new Date());
         for (const node of due) await this.rotateNode(node.id, order.id);
       }
@@ -218,6 +222,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
   private async pricePerGbDay() { const result = await this.db.client.from('app_settings').select('value').eq('key', 'static_residential_price_per_gb_day').maybeSingle(); return Number(this.db.unwrap(result, 'Unable to load static residential price')?.value || 0); }
   private async creditRate() { const result = await this.db.client.from('app_settings').select('value').eq('key', 'credits_per_usd').maybeSingle(); return Number(this.db.unwrap(result, 'Unable to load credit conversion')?.value || 100); }
   private validateDays(value: number) { if (!DAYS.includes(value)) throw new BadRequestException('Rental days must be one of: 1, 3, 7, 15, or 30'); }
+  private validateQuotaGb(value: number) { if (!QUOTA_OPTIONS_GB.includes(value)) throw new BadRequestException('Quota must be 1GB, 3GB, or 5GB'); }
   private mask(value: string) { return value.length <= 3 ? '***' : `${value.slice(0, 2)}***${value.slice(-1)}`; }
   private async resolvePublicHost(rawHost: string) {
     const host = rawHost.replace(/^\[(.*)\]$/, '$1').toLowerCase();
