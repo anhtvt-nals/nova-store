@@ -124,6 +124,7 @@ export interface User {
   usage?: { requests: number; successful: number; today: number };
   temporaryPassword?: string;
 }
+export interface PaginatedUsers { items: User[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface SandboxKey {
   id: number;
   label: string;
@@ -301,6 +302,24 @@ export interface GeneralSettings {
 }
 export interface CreditWallet { id: number; name: string; email: string; isTrial: boolean; balance: number; updatedAt: string | null; }
 export interface PaginatedCreditWallets { items: CreditWallet[]; total: number; page: number; pageSize: number; totalPages: number; }
+export interface CreditHistoryEntry {
+  id: number;
+  amount: number;
+  balanceAfter: number;
+  type: string;
+  reference: string | null;
+  note: string;
+  createdAt: string;
+  actor: { name: string; email: string } | null;
+}
+export interface PaginatedCreditHistory {
+  profile: { id: number; name: string; email: string };
+  items: CreditHistoryEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
 export interface CatalogSettings {
   brandName: string;
   usdToIdrRate: number;
@@ -365,6 +384,7 @@ export const getStaticResidentialInventoryQueryKey = (page?: number, pageSize?: 
 export const getStaticResidentialPricingQueryKey = () => ['static-residential-pricing'] as const;
 export const getGetAdminOverviewQueryKey = () => ['admin-overview'] as const;
 export const getListUsersQueryKey = () => ['users'] as const;
+export const getPaginatedUsersQueryKey = (page: number, pageSize: number, search: string) => ['users', page, pageSize, search] as const;
 export const getListSandboxKeysQueryKey = () => ['sandbox-keys'] as const;
 export const getListAdminOrdersQueryKey = () => ['admin-orders'] as const;
 export const getPaginatedAdminOrdersQueryKey = (page: number, pageSize: number) => ['admin-orders', page, pageSize] as const;
@@ -375,9 +395,10 @@ export const getListProviderApiKeysQueryKey = () => ['provider-api-keys'] as con
 export const getProvisioningJobsQueryKey = (page: number) => ['provisioning-jobs', page] as const;
 export const getProxySettingsQueryKey = () => ['proxy-settings'] as const;
 export const getGeneralSettingsQueryKey = () => ['general-settings'] as const;
-export const getCreditWalletsQueryKey = (page?: number, pageSize?: number) => page === undefined
+export const getCreditWalletsQueryKey = (page?: number, pageSize?: number, search = '') => page === undefined
   ? ['credit-wallets'] as const
-  : ['credit-wallets', page, pageSize] as const;
+  : ['credit-wallets', page, pageSize, search] as const;
+export const getCreditHistoryQueryKey = (profileId: number, page: number, pageSize: number) => ['credit-history', profileId, page, pageSize] as const;
 export const getCurrentUserQueryKey = () => ['current-user'] as const;
 export const getTelegramVerificationStatusQueryKey = () => ['telegram-verification-status'] as const;
 
@@ -509,6 +530,17 @@ export function useGetAdminOverview(config?: QueryConfig<AdminOverview>) {
 export function useListUsers(config?: QueryConfig<User[]>) {
   return query(getListUsersQueryKey(), '/admin/users', getAccessToken, config);
 }
+export function usePaginatedUsers(page = 1, pageSize = 5, search = '', config?: QueryConfig<PaginatedUsers>) {
+  const normalizedSearch = search.trim();
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (normalizedSearch) params.set('search', normalizedSearch);
+  return query(
+    getPaginatedUsersQueryKey(page, pageSize, normalizedSearch),
+    `/admin/users?${params.toString()}`,
+    getAccessToken,
+    config,
+  );
+}
 export function useListSandboxKeys(config?: QueryConfig<SandboxKey[]>) {
   return query(getListSandboxKeysQueryKey(), '/admin/api-keys', getAccessToken, config);
 }
@@ -539,8 +571,19 @@ export function useProxySettings(config?: QueryConfig<ProxyPriceSetting[]>) {
 export function useGeneralSettings(config?: QueryConfig<GeneralSettings>) {
   return query(getGeneralSettingsQueryKey(), '/admin/settings', getAccessToken, config);
 }
-export function useCreditWallets(page = 1, pageSize = 5, config?: QueryConfig<PaginatedCreditWallets>) {
-  return query(getCreditWalletsQueryKey(page, pageSize), `/admin/credits?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
+export function useCreditWallets(page = 1, pageSize = 5, search = '', config?: QueryConfig<PaginatedCreditWallets>) {
+  const normalizedSearch = search.trim();
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (normalizedSearch) params.set('search', normalizedSearch);
+  return query(getCreditWalletsQueryKey(page, pageSize, normalizedSearch), `/admin/credits?${params.toString()}`, getAccessToken, config);
+}
+export function useCreditHistory(profileId: number, page = 1, pageSize = 10, config?: QueryConfig<PaginatedCreditHistory>) {
+  return query(
+    getCreditHistoryQueryKey(profileId, page, pageSize),
+    `/admin/credits/${profileId}/history?page=${page}&pageSize=${pageSize}`,
+    getAccessToken,
+    config,
+  );
 }
 
 export function useCreateOrder(options?: MutationConfig<Order, { data: { productId: number; nodeCount: number; rentalDays: number; paymentMethod: 'credit' } }>) {

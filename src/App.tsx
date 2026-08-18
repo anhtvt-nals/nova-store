@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy, Download,
-  FolderTree, Gauge, Globe2, KeyRound, Layers3, Link2, LogIn, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
+  FolderTree, Gauge, Globe2, History, KeyRound, Layers3, Link2, LogIn, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, Search, UserCheck,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
@@ -10,8 +10,8 @@ import {
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
   useCreditBalance, useCurrentUser, useExtendOrder, useExportProxyConnections, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode, useCreateStaticResidentialOrder, useExtendStaticResidentialOrder, useExportStaticResidentialConnections, useListStaticResidentialOrders, useStaticResidentialQuote, useImportStaticResidentialInventory, useCheckStaticResidentialInventoryStatus, useEnableStaticResidentialInventoryProxy, useStaticResidentialInventory, useStaticResidentialPricing, useUpdateStaticResidentialPricing,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, usePaginatedAdminOrders,
-  useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers,
-  useAddCreditTopUp, useCatalogSettings, useCreditWallets, useDeductCredit, useProvisioningJobs, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProviderApiKey, useUpdateProxyPrice, useUpdateUser,
+  useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers, usePaginatedUsers,
+  useAddCreditTopUp, useCatalogSettings, useCreditHistory, useCreditWallets, useDeductCredit, useProvisioningJobs, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProviderApiKey, useUpdateProxyPrice, useUpdateUser,
   getGetAdminOverviewQueryKey, getGetClientOverviewQueryKey, getGetOrderConnectionQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey, getListCategoriesQueryKey, getListClientOrdersQueryKey, getListClientProxyNodesQueryKey, getListNodesQueryKey,
   getCreditWalletsQueryKey, getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, getStaticResidentialInventoryQueryKey, getStaticResidentialOrdersQueryKey, getStaticResidentialPricingQueryKey, subscribeToProxyNodeEvents,
@@ -414,10 +414,14 @@ function Pagination({ page, total, onChange }: { page: number; total: number; on
   return <div className="flex items-center justify-between border-t border-[#edf2f3] px-5 py-3 text-xs text-slate-500"><span>Page {page} of {total}</span><div className="flex gap-2"><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</button><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page >= total} onClick={() => onChange(page + 1)}>Next</button></div></div>;
 }
 
-function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number }) {
+function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId, pagination }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number; pagination?: { page: number; total: number; onChange: (page: number) => void } }) {
   const [page, setPage] = useState(1); const total = Math.max(1, Math.ceil(users.length / 5)); const visible = users.slice((page - 1) * 5, page * 5);
   useEffect(() => { if (page > total) setPage(total); }, [page, total]);
-  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{visible.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p><p className="mt-1 text-[10px] text-slate-400">Usage: {(user.usage?.today || 0).toLocaleString()} today · {(user.usage?.requests || 0).toLocaleString()} total · {user.usage?.requests ? `${Math.round(((user.usage.successful || 0) / user.usage.requests) * 100)}% success` : '—'}</p></div></div><div className="flex items-center gap-2"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><IconActionButton label="Edit user" onClick={() => onEdit(user)} testId={`button-edit-user-${user.id}`}><Pencil size={15} /></IconActionButton><IconActionButton label="Reset password" onClick={() => onResetPassword(user)} disabled={resettingId === user.id} testId={`button-reset-password-${user.id}`}><KeyRound size={15} /></IconActionButton><IconActionButton label={user.status === 'active' ? 'Suspend user' : 'Activate user'} onClick={() => onToggle(user)} testId={`button-toggle-user-${user.id}`}>{user.status === 'active' ? <Ban size={15} /> : <Power size={15} />}</IconActionButton><IconActionButton label="Delete user" tone="danger" onClick={() => onDelete(user.id)} testId={`button-delete-user-${user.id}`}><Trash2 size={15} /></IconActionButton></div></div>)}</div><Pagination page={page} total={total} onChange={setPage} /></State></div>;
+  const displayedUsers = pagination ? users : visible;
+  const activePage = pagination?.page ?? page;
+  const pageTotal = pagination?.total ?? total;
+  const changePage = pagination?.onChange ?? setPage;
+  return <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><State loading={loading} empty={!users.length}><div className="divide-y divide-[#edf2f3]">{displayedUsers.map(user => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-testid={`row-user-${user.id}`}><div className="flex min-w-[210px] items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[#def5f3] text-xs font-extrabold text-[#13716e]">{user.name.slice(0, 1).toUpperCase()}</div><div><p className="text-sm font-bold text-[#142037]">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p><p className="mt-1 text-[10px] text-slate-400">Usage: {(user.usage?.today || 0).toLocaleString()} today · {(user.usage?.requests || 0).toLocaleString()} total · {user.usage?.requests ? `${Math.round(((user.usage.successful || 0) / user.usage.requests) * 100)}% success` : '—'}</p></div></div><div className="flex items-center gap-2"><Badge tone={user.status === 'active' ? 'green' : 'red'}>{user.status}</Badge><span className="hidden text-xs text-slate-500 md:inline">{user.planName}</span><IconActionButton label="Edit user" onClick={() => onEdit(user)} testId={`button-edit-user-${user.id}`}><Pencil size={15} /></IconActionButton><IconActionButton label="Reset password" onClick={() => onResetPassword(user)} disabled={resettingId === user.id} testId={`button-reset-password-${user.id}`}><KeyRound size={15} /></IconActionButton><IconActionButton label={user.status === 'active' ? 'Suspend user' : 'Activate user'} onClick={() => onToggle(user)} testId={`button-toggle-user-${user.id}`}>{user.status === 'active' ? <Ban size={15} /> : <Power size={15} />}</IconActionButton><IconActionButton label="Delete user" tone="danger" onClick={() => onDelete(user.id)} testId={`button-delete-user-${user.id}`}><Trash2 size={15} /></IconActionButton></div></div>)}</div><Pagination page={activePage} total={pageTotal} onChange={changePage} /></State></div>;
 }
 
 function GeneratedPasswordCard({ email, password, onDismiss }: { email: string; password: string; onDismiss: () => void }) {
@@ -604,7 +608,10 @@ function AdminCatalogPage() {
 }
 
 function AdminUsersPage() {
-  const users = useListUsers();
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const users = usePaginatedUsers(page, 5, search);
   const qc = useQueryClient();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -614,6 +621,14 @@ function AdminUsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [generated, setGenerated] = useState<{ email: string; password: string } | null>(null);
   const [resettingId, setResettingId] = useState<number>();
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput.trim());
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+  useEffect(() => { if (users.data && page > users.data.totalPages) setPage(users.data.totalPages); }, [users.data?.totalPages, page]);
   const refresh = () => void qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
   const create = () => {
     if (!form.name || !form.email) return;
@@ -656,7 +671,14 @@ function AdminUsersPage() {
           </div>
         </div>
       </div>
-      <UsersTable users={users.data || []} loading={users.isLoading} onEdit={setEditing} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refresh }); }} onToggle={user => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refresh })} onResetPassword={resetUserPassword} resettingId={resettingId} />
+      <div className="min-w-0">
+        <label className="relative mb-3 block">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Search by name or email" aria-label="Search users by name or email" className="w-full rounded-xl border border-[#dbe7e9] bg-white py-3 pl-10 pr-10 text-sm outline-none focus:border-[#f46c43]" />
+          {searchInput && <button type="button" onClick={() => setSearchInput('')} aria-label="Clear user search" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#142037]"><X size={15} /></button>}
+        </label>
+        <UsersTable users={users.data?.items || []} loading={users.isLoading} onEdit={setEditing} onDelete={id => { if (window.confirm('Delete this user record?')) deleteUser.mutate({ id }, { onSuccess: refresh }); }} onToggle={user => updateUser.mutate({ id: user.id, data: { status: user.status === 'active' ? 'suspended' : 'active' } }, { onSuccess: refresh })} onResetPassword={resetUserPassword} resettingId={resettingId} pagination={{ page, total: users.data?.totalPages || 1, onChange: setPage }} />
+      </div>
     </div>
   </PageLayout>;
 }
@@ -816,9 +838,39 @@ function AdminGeneralSettingsPage() {
   return <PageLayout admin eyebrow="system" title="Settings" body="General application defaults shared across modules."><State loading={settings.isLoading} error={settings.isError} onRetry={() => settings.refetch()}><div className="max-w-2xl rounded-3xl border border-[#dbe7e9] bg-white p-6"><div className="grid gap-4"><label className="text-sm font-bold">Site name<input className={inputClass} value={form.siteName} onChange={event => setForm({ ...form, siteName: event.target.value })} /></label><label className="text-sm font-bold">Support email<input className={inputClass} type="email" value={form.supportEmail} onChange={event => setForm({ ...form, supportEmail: event.target.value })} /></label><label className="text-sm font-bold">Default currency<input className={inputClass} maxLength={3} value={form.defaultCurrency} onChange={event => setForm({ ...form, defaultCurrency: event.target.value.toUpperCase() })} /></label><label className="text-sm font-bold">USD → IDR exchange rate<input className={inputClass} type="number" min="1" step="0.01" value={form.usdToIdrRate} onChange={event => setForm({ ...form, usdToIdrRate: Math.max(1, Number(event.target.value) || 1) })} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold">Credits per USD<input className={inputClass} type="number" min="0.01" step="0.01" value={form.creditsPerUsd} onChange={event => setForm({ ...form, creditsPerUsd: Math.max(.01, Number(event.target.value) || .01) })} /><span className="mt-1 block text-xs font-normal text-slate-500">Example: 100 means $1 = 100 credits.</span></label><label className="text-sm font-bold">New-user trial credit<input className={inputClass} type="number" min="0" step="0.01" value={form.trialCreditAmount} onChange={event => setForm({ ...form, trialCreditAmount: Math.max(0, Number(event.target.value) || 0) })} /><span className="mt-1 block text-xs font-normal text-slate-500">Set this to one node/day cost.</span></label></div><Button className="mt-2 w-fit" disabled={update.isPending} onClick={() => update.mutate({ data: { ...form, supportEmail: form.supportEmail || undefined } }, { onSuccess: () => { void qc.invalidateQueries({ queryKey: getGeneralSettingsQueryKey() }); void qc.invalidateQueries({ queryKey: ['catalog-settings'] }); }, onError: error => window.alert(error.message) })}>{update.isPending ? 'Saving…' : 'Save settings'}</Button></div></div></State></PageLayout>;
 }
 
+function CreditHistoryModal({ wallet, onClose }: { wallet: CreditWallet; onClose: () => void }) {
+  const [page, setPage] = useState(1);
+  const history = useCreditHistory(wallet.id, page, 10);
+  useEffect(() => { if (history.data && page > history.data.totalPages) setPage(history.data.totalPages); }, [history.data?.totalPages, page]);
+  const typeLabel = (type: string) => type.replaceAll('_', ' ');
+  return <Modal title={`Credit history · ${wallet.name}`} onClose={onClose}>
+    <div className="mb-4 rounded-2xl border border-[#dbe7e9] bg-[#f8fbfb] px-4 py-3">
+      <p className="text-xs text-slate-500">{wallet.email}</p>
+      <p className="mono mt-1 text-lg font-extrabold text-[#13716e]">Current balance: {wallet.balance.toLocaleString()} cr</p>
+    </div>
+    <State loading={history.isLoading} error={history.isError} onRetry={() => history.refetch()} empty={!history.data?.items.length}>
+      <div className="overflow-hidden rounded-2xl border border-[#dbe7e9]">
+        <div className="divide-y divide-[#edf2f3]">{history.data?.items.map(entry => {
+          const positive = entry.amount > 0;
+          return <div key={entry.id} className="px-4 py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Badge tone={positive ? 'green' : 'red'}>{typeLabel(entry.type)}</Badge>{entry.reference && <span className="mono break-all text-[10px] text-slate-400">{entry.reference}</span>}</div><p className="mt-2 break-words text-sm text-[#142037]">{entry.note || 'No note'}</p></div>
+              <div className="shrink-0 text-right"><p className={cx('mono text-sm font-extrabold', positive ? 'text-[#13716e]' : 'text-red-600')}>{positive ? '+' : ''}{entry.amount.toLocaleString()} cr</p><p className="mt-1 text-[10px] text-slate-400">Balance {entry.balanceAfter.toLocaleString()} cr</p></div>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-between gap-2 text-[10px] text-slate-400"><span>{entry.actor ? `By ${entry.actor.name} · ${entry.actor.email}` : 'System transaction'}</span><span>{new Date(entry.createdAt).toLocaleString()}</span></div>
+          </div>;
+        })}</div>
+        <Pagination page={page} total={history.data?.totalPages || 1} onChange={setPage} />
+      </div>
+    </State>
+  </Modal>;
+}
+
 function AdminCreditsPage() {
   const [page, setPage] = useState(1);
-  const wallets = useCreditWallets(page, 5);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const wallets = useCreditWallets(page, 5, search);
   const topUp = useAddCreditTopUp();
   const deduct = useDeductCredit();
   const updateUser = useUpdateUser();
@@ -829,10 +881,18 @@ function AdminCreditsPage() {
   const [currency, setCurrency] = useState<'USD' | 'IDR'>('USD');
   const [note, setNote] = useState('Manual credit top-up');
   const [deducting, setDeducting] = useState<CreditWallet | null>(null);
+  const [historyWallet, setHistoryWallet] = useState<CreditWallet | null>(null);
   const [deductionAmount, setDeductionAmount] = useState('');
   const [deductionNote, setDeductionNote] = useState('');
   const numericAmount = Number(amount);
   const credits = Number.isFinite(numericAmount) && numericAmount > 0 ? (currency === 'USD' ? numericAmount * (settings.data?.creditsPerUsd || 100) : (numericAmount / (settings.data?.usdToIdrRate || 16000)) * (settings.data?.creditsPerUsd || 100)) : 0;
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput.trim());
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
   useEffect(() => { if (wallets.data && page > wallets.data.totalPages) setPage(wallets.data.totalPages); }, [wallets.data?.totalPages, page]);
   const addCredit = () => {
     if (!selected || !note.trim() || credits <= 0) return;
@@ -843,7 +903,29 @@ function AdminCreditsPage() {
     if (!deducting || !Number.isFinite(amountToDeduct) || amountToDeduct <= 0 || amountToDeduct > deducting.balance || !deductionNote.trim()) return;
     deduct.mutate({ id: deducting.id, data: { amount: amountToDeduct, note: deductionNote.trim() } }, { onSuccess: () => { setDeducting(null); void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }); }, onError: error => window.alert(error.message) });
   };
-  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual top-ups and deductions are recorded in an immutable ledger. Trial users may rent only one node until promoted."><State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.items.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="hidden grid-cols-[1.3fr_.8fr_.7fr_120px] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span className="text-right">Actions</span></div>{wallets.data?.items.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_120px] md:items-center md:gap-4"><div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div><div><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge></div><p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p><div className="flex w-[120px] justify-end gap-2"><IconActionButton label="Add credit" onClick={() => { setSelected(wallet); setAmount(''); setCurrency('USD'); setNote('Manual credit top-up'); }} disabled={topUp.isPending}><Plus size={15} /></IconActionButton><IconActionButton label="Reduce credit" onClick={() => { setDeducting(wallet); setDeductionAmount(''); setDeductionNote(''); }} disabled={deduct.isPending || wallet.balance <= 0}><Ban size={15} /></IconActionButton>{wallet.isTrial && <IconActionButton label="Promote to regular account" onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })} disabled={updateUser.isPending}><Power size={15} /></IconActionButton>}</div></div>)}<Pagination page={page} total={wallets.data?.totalPages || 1} onChange={setPage} /></div></State>{selected && <Modal title={`Add credit · ${selected.name}`} onClose={() => setSelected(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">Enter USD or IDR to calculate the Credit top-up.</p><div className="grid grid-cols-[1fr_120px] gap-3"><label className="text-sm font-bold">Amount<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Currency<select className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={currency} onChange={event => setCurrency(event.target.value as 'USD' | 'IDR')}><option>USD</option><option>IDR</option></select></label></div><div className="rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-4 py-3"><p className="text-xs text-[#13716e]">Credit to add</p><p className="mono mt-1 text-xl font-extrabold text-[#13716e]">{credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} cr</p></div><label className="text-sm font-bold">Audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={note} onChange={event => setNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={topUp.isPending || credits <= 0 || !note.trim()} onClick={addCredit}>{topUp.isPending ? 'Adding…' : 'Add credit'}</Button></div></div></Modal>}{deducting && <Modal title={`Reduce credit · ${deducting.name}`} onClose={() => setDeducting(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">The deduction is permanent and recorded in the immutable ledger. Current balance: <strong>{deducting.balance.toLocaleString()} cr</strong>.</p><label className="text-sm font-bold">Credits to reduce<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={deductionAmount} onChange={event => setDeductionAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Required audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={deductionNote} onChange={event => setDeductionNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setDeducting(null)}>Cancel</Button><Button variant="danger" className="flex-1" disabled={deduct.isPending || !(Number(deductionAmount) > 0) || Number(deductionAmount) > deducting.balance || !deductionNote.trim()} onClick={deductCredit}>{deduct.isPending ? 'Reducing…' : 'Reduce credit'}</Button></div></div></Modal>}</PageLayout>;
+  return <PageLayout admin eyebrow="billing" title="Credits" body="Manual top-ups and deductions are recorded in an immutable ledger. Trial users may rent only one node until promoted.">
+    <label className="relative mb-3 block"><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Search by name or email" aria-label="Search credit accounts by name or email" className="w-full rounded-xl border border-[#dbe7e9] bg-white py-3 pl-10 pr-10 text-sm outline-none focus:border-[#f46c43]" />{searchInput && <button type="button" onClick={() => setSearchInput('')} aria-label="Clear credit search" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#142037]"><X size={15} /></button>}</label>
+    <State loading={wallets.isLoading} error={wallets.isError} onRetry={() => wallets.refetch()} empty={!wallets.data?.items.length}>
+      <div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white">
+        <div className="hidden grid-cols-[1.3fr_.8fr_.7fr_160px] gap-4 border-b border-[#edf2f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400 md:grid"><span>User</span><span>Account</span><span>Balance</span><span className="text-right">Actions</span></div>
+        {wallets.data?.items.map(wallet => <div key={wallet.id} className="grid gap-3 border-b border-[#edf2f3] px-5 py-4 last:border-0 md:grid-cols-[1.3fr_.8fr_.7fr_160px] md:items-center md:gap-4">
+          <div><p className="text-sm font-bold">{wallet.name}</p><p className="text-xs text-slate-500">{wallet.email}</p></div>
+          <div><Badge tone={wallet.isTrial ? 'orange' : 'green'}>{wallet.isTrial ? 'trial' : 'regular'}</Badge></div>
+          <p className="mono text-sm font-extrabold text-[#13716e]">{wallet.balance.toLocaleString()} cr</p>
+          <div className="flex w-[160px] justify-end gap-2">
+            <IconActionButton label="Credit history" onClick={() => setHistoryWallet(wallet)}><History size={15} /></IconActionButton>
+            <IconActionButton label="Add credit" onClick={() => { setSelected(wallet); setAmount(''); setCurrency('USD'); setNote('Manual credit top-up'); }} disabled={topUp.isPending}><Plus size={15} /></IconActionButton>
+            <IconActionButton label="Reduce credit" onClick={() => { setDeducting(wallet); setDeductionAmount(''); setDeductionNote(''); }} disabled={deduct.isPending || wallet.balance <= 0}><Ban size={15} /></IconActionButton>
+            {wallet.isTrial && <IconActionButton label="Promote to regular account" onClick={() => updateUser.mutate({ id: wallet.id, data: { isTrial: false } }, { onSuccess: () => void qc.invalidateQueries({ queryKey: getCreditWalletsQueryKey() }), onError: error => window.alert(error.message) })} disabled={updateUser.isPending}><Power size={15} /></IconActionButton>}
+          </div>
+        </div>)}
+        <Pagination page={page} total={wallets.data?.totalPages || 1} onChange={setPage} />
+      </div>
+    </State>
+    {historyWallet && <CreditHistoryModal wallet={historyWallet} onClose={() => setHistoryWallet(null)} />}
+    {selected && <Modal title={`Add credit · ${selected.name}`} onClose={() => setSelected(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">Enter USD or IDR to calculate the Credit top-up.</p><div className="grid grid-cols-[1fr_120px] gap-3"><label className="text-sm font-bold">Amount<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Currency<select className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={currency} onChange={event => setCurrency(event.target.value as 'USD' | 'IDR')}><option>USD</option><option>IDR</option></select></label></div><div className="rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-4 py-3"><p className="text-xs text-[#13716e]">Credit to add</p><p className="mono mt-1 text-xl font-extrabold text-[#13716e]">{credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} cr</p></div><label className="text-sm font-bold">Audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={note} onChange={event => setNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={topUp.isPending || credits <= 0 || !note.trim()} onClick={addCredit}>{topUp.isPending ? 'Adding…' : 'Add credit'}</Button></div></div></Modal>}
+    {deducting && <Modal title={`Reduce credit · ${deducting.name}`} onClose={() => setDeducting(null)}><div className="grid gap-4"><p className="text-sm text-slate-500">The deduction is permanent and recorded in the immutable ledger. Current balance: <strong>{deducting.balance.toLocaleString()} cr</strong>.</p><label className="text-sm font-bold">Credits to reduce<input autoFocus className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" inputMode="decimal" value={deductionAmount} onChange={event => setDeductionAmount(event.target.value)} placeholder="0.00" /></label><label className="text-sm font-bold">Required audit note<input className="mt-2 w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={deductionNote} onChange={event => setDeductionNote(event.target.value)} maxLength={300} /></label><div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setDeducting(null)}>Cancel</Button><Button variant="danger" className="flex-1" disabled={deduct.isPending || !(Number(deductionAmount) > 0) || Number(deductionAmount) > deducting.balance || !deductionNote.trim()} onClick={deductCredit}>{deduct.isPending ? 'Reducing…' : 'Reduce credit'}</Button></div></div></Modal>}
+  </PageLayout>;
 }
 
 function AdminStaticResidentialPage() {

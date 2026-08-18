@@ -10,11 +10,28 @@ import { AddCreditTopUpDto, AdjustCreditDto, CreateApiKeyDto, CreateBlaxelEgress
 export class AdminController {
   constructor(private service: AdminService) {}
   @Get('overview') overview() { return this.service.overview(); }
-  @Get('users') users() { return this.service.users(); }
+  @Get('users') users(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ) {
+    return page === undefined && !search
+      ? this.service.users()
+      : this.service.users(Number(page), Number(pageSize), search);
+  }
   @Post('users') createUser(@Body() body: CreateUserDto) { return this.service.createUser(body); }
   @Patch('users/:id') updateUser(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserDto) { return this.service.updateUser(id, body); }
   @Post('users/:id/reset-password') resetUserPassword(@Param('id', ParseIntPipe) id: number) { return this.service.resetUserPassword(id); }
-  @Get('credits') credits(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.credits(Number(page), Number(pageSize)); }
+  @Get('credits') credits(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ) { return this.service.credits(Number(page), Number(pageSize), search); }
+  @Get('credits/:id/history') creditHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) { return this.service.creditHistory(id, Number(page), Number(pageSize)); }
   @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
   @Post('credits/:id/top-up') topUpCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AddCreditTopUpDto) { return this.service.topUpCredit(id, body.amount, body.currency, body.note || '', user.profileId); }
   @Post('credits/:id/deduct') deductCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: DeductCreditDto) { return this.service.deductCredit(id, body.amount, body.note, user.profileId); }

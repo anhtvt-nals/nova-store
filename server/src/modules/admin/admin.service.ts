@@ -47,14 +47,44 @@ export class AdminService {
     };
   }
 
-  async users() {
+  async users(requestedPage?: number, requestedPageSize?: number, rawSearch?: string) {
     const today = new Date().toISOString().slice(0, 10);
-    const [profiles, orders, usage] = await Promise.all([
-      this.db.client.from('profiles').select('id,name,email,status,is_trial').neq('role', 'admin').order('created_at', { ascending: false }),
-      this.db.client.from('orders').select('profile_id,plan_name_snapshot,created_at').eq('status', 'active').order('created_at', { ascending: false }),
-      this.db.client.from('usage_daily').select('profile_id,usage_date,requests,successful_requests'),
-    ]);
+    const paginated = Number.isInteger(requestedPage) || Boolean(rawSearch?.trim());
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
+    // PostgREST's `or` argument uses its own filter grammar. Restrict the
+    // customer-entered term to ordinary name/email characters before placing
+    // it in that grammar, rather than accepting raw filter syntax.
+    const search = (rawSearch || '')
+      .trim()
+      .slice(0, 100)
+      .replace(/[^\p{L}\p{N}@._+\-\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let profilesQuery = this.db.client
+      .from('profiles')
+      .select('id,name,email,status,is_trial', paginated ? { count: 'exact' } : undefined)
+      .neq('role', 'admin')
+      .order('created_at', { ascending: false });
+    if (search) profilesQuery = profilesQuery.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+    if (paginated) {
+      const from = (page - 1) * pageSize;
+      profilesQuery = profilesQuery.range(from, from + pageSize - 1);
+    }
+
+    const profiles = await profilesQuery;
     const rows = this.db.unwrap(profiles, 'Unable to load users');
+    const profileIds = rows.map(profile => profile.id);
+    if (!profileIds.length) {
+      return paginated
+        ? { items: [], total: 0, page, pageSize, totalPages: 1 }
+        : [];
+    }
+    const [orders, usage] = await Promise.all([
+      this.db.client.from('orders').select('profile_id,plan_name_snapshot,created_at').in('profile_id', profileIds).eq('status', 'active').order('created_at', { ascending: false }),
+      this.db.client.from('usage_daily').select('profile_id,usage_date,requests,successful_requests').in('profile_id', profileIds),
+    ]);
     const activeOrders = this.db.unwrap(orders, 'Unable to load user plans');
     const usageRows = this.db.unwrap(usage, 'Unable to load user usage') as Array<{ profile_id: number; usage_date: string; requests: number; successful_requests: number }>;
     const usageByProfile = new Map<number, { requests: number; successful: number; today: number }>();
@@ -65,7 +95,7 @@ export class AdminService {
       if (entry.usage_date === today) current.today += Number(entry.requests || 0);
       usageByProfile.set(entry.profile_id, current);
     }
-    return rows.map(profile => ({
+    const items = rows.map(profile => ({
       id: profile.id,
       name: profile.name,
       email: profile.email,
@@ -74,6 +104,9 @@ export class AdminService {
       planName: activeOrders.find(order => order.profile_id === profile.id)?.plan_name_snapshot || 'No active plan',
       usage: usageByProfile.get(profile.id) || { requests: 0, successful: 0, today: 0 },
     }));
+    if (!paginated) return items;
+    const total = profiles.count || 0;
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   async createUser(dto: CreateUserDto) {
@@ -137,19 +170,70 @@ export class AdminService {
     if (deleted.error) throw deleted.error;
   }
 
-  async credits(requestedPage?: number, requestedPageSize?: number) {
+  async credits(requestedPage?: number, requestedPageSize?: number, rawSearch?: string) {
     const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
     const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 5;
     const from = (page - 1) * pageSize;
-    const result = await this.db.client.from('profiles')
+    const search = (rawSearch || '')
+      .trim()
+      .slice(0, 100)
+      .replace(/[^\p{L}\p{N}@._+\-\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    let query = this.db.client.from('profiles')
       .select('id,name,email,is_trial,credit_wallets(balance,updated_at)', { count: 'exact' })
-      .order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+      .order('created_at', { ascending: false });
+    if (search) query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+    const result = await query.range(from, from + pageSize - 1);
     const items = this.db.unwrap(result, 'Unable to load credit wallets').map((row: any) => {
       const wallet = Array.isArray(row.credit_wallets) ? row.credit_wallets[0] : row.credit_wallets;
       return { id: row.id, name: row.name, email: row.email, isTrial: row.is_trial, balance: Number(wallet?.balance || 0), updatedAt: wallet?.updated_at || null };
     });
     const total = result.count || 0;
     return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
+  async creditHistory(profileId: number, requestedPage?: number, requestedPageSize?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 10;
+    const from = (page - 1) * pageSize;
+    const [profileResult, ledgerResult] = await Promise.all([
+      this.db.client.from('profiles').select('id,name,email').eq('id', profileId).neq('role', 'admin').maybeSingle(),
+      this.db.client.from('credit_ledger')
+        .select('id,amount,balance_after,type,reference,note,created_by_profile_id,created_at', { count: 'exact' })
+        .eq('profile_id', profileId)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+    ]);
+    const profile = this.db.unwrap(profileResult, 'Unable to load credit account');
+    if (!profile) throw new NotFoundException('Credit account not found');
+    const rows = this.db.unwrap(ledgerResult, 'Unable to load credit history');
+    const actorIds = [...new Set(rows.map(row => row.created_by_profile_id).filter((id): id is number => Number.isInteger(id)))];
+    const actorById = new Map<number, { name: string; email: string }>();
+    if (actorIds.length) {
+      const actorsResult = await this.db.client.from('profiles').select('id,name,email').in('id', actorIds);
+      const actors = this.db.unwrap(actorsResult, 'Unable to load credit history actors');
+      for (const actor of actors) actorById.set(actor.id, { name: actor.name, email: actor.email });
+    }
+    const items = rows.map(row => ({
+      id: row.id,
+      amount: Number(row.amount),
+      balanceAfter: Number(row.balance_after),
+      type: row.type,
+      reference: row.reference,
+      note: row.note,
+      createdAt: row.created_at,
+      actor: row.created_by_profile_id ? actorById.get(row.created_by_profile_id) || null : null,
+    }));
+    const total = ledgerResult.count || 0;
+    return {
+      profile: { id: profile.id, name: profile.name, email: profile.email },
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
   }
 
   async adjustCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
