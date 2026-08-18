@@ -288,6 +288,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
 
 function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode }) {
   const qc = useQueryClient();
+  const { toast } = useToast();
   const restart = useRestartProxyNode();
   const orderIsActive = order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date());
   const canRestart = orderIsActive && ['online', 'degraded', 'offline', 'error'].includes(node.status);
@@ -296,10 +297,13 @@ function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode 
     && ['online', 'rotating', 'degraded'].includes(node.status)
     && !!node.host && !!node.port && !!node.connection;
   const requestRestart = () => {
-    if (!canRestart || !window.confirm(`Restart node ${node.id}? The proxy will be temporarily unavailable.`)) return;
+    if (!canRestart) return;
     restart.mutate({ id: node.id }, {
-      onSuccess: () => void qc.invalidateQueries({ queryKey: getListClientProxyNodesQueryKey() }),
-      onError: error => window.alert(error.message),
+      onSuccess: () => {
+        toast({ title: 'Node rotation started', description: `Node ${node.id} is being replaced. The proxy may be briefly unavailable.` });
+        void qc.invalidateQueries({ queryKey: getListClientProxyNodesQueryKey() });
+      },
+      onError: error => toast({ variant: 'destructive', title: 'Unable to start rotation', description: error.message }),
     });
   };
   if (!canShowConnection || !node.connection || !node.host || !node.port) return <ProxyNodeStatusCard node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;

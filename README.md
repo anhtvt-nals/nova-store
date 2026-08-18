@@ -26,6 +26,24 @@ npm run build
 
 Health check: `GET /api/health`. Public catalog endpoints are `GET /api/catalog/plans` and `GET /api/catalog/resources`; all other endpoints require a Supabase access token. Admin endpoints additionally require `profiles.role = 'admin'`.
 
+### NodeOps CreateOS sandbox + GOST test
+
+This one-off test does not use the database or create an order. It creates one
+CreateOS sandbox, installs GOST, opens a reverse SOCKS5 tunnel on port `39996`,
+authenticates the SOCKS5 endpoint from the machine running the test, prints the
+connection string and proxy egress IP, then destroys the sandbox. Configure the
+`NODEOPS_*` WSS values in `.env` (dedicated tunnel credentials are recommended),
+then run:
+
+```bash
+NODEOPS_TEST_API_KEY='your-createos-api-key' npm run test:nodeops-gost
+```
+
+Set `NODEOPS_TEST_KEEP_ALIVE=true` to keep the tunnel available for manual
+testing; press Ctrl+C to destroy the sandbox. By default it cleans immediately
+after a successful check. On errors it also destroys the sandbox; set
+`NODEOPS_TEST_KEEP_ON_FAILURE=true` only for manual diagnostics.
+
 ## Proxy usage telemetry
 
 Apply `202608160041_proxy_usage_observer.sql`, then configure a public HTTPS callback for sandbox observers:
