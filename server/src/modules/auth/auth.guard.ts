@@ -1,8 +1,9 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
 import { IS_PUBLIC } from './public.decorator';
+import { ALLOW_PENDING_VERIFICATION } from './allow-pending-verification.decorator';
 import type { AuthUser } from './auth.types';
 
 @Injectable()
@@ -14,33 +15,47 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request & { user: AuthUser }>();
     const token = request.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
     if (!token) throw new UnauthorizedException('Missing bearer token');
-    try {
-      const { data, error } = await this.db.client.auth.getUser(token);
-      if (error || !data.user?.email) throw error || new Error('Supabase user has no email');
-      if (!data.user.email_confirmed_at) throw new Error('Email address is not confirmed');
-      const profile = await this.resolveProfile(data.user.id, data.user.email, data.user.user_metadata);
-      request.user = { ...profile, aal: this.readAal(token) };
-      return true;
-    } catch {
+    const { data, error } = await this.db.client.auth.getUser(token);
+    if (error || !data.user?.email || !data.user.email_confirmed_at) {
       throw new UnauthorizedException('Invalid or expired session');
     }
+    const profile = await this.resolveProfile(data.user.id, data.user.email, data.user.user_metadata);
+    request.user = { ...profile, aal: this.readAal(token) };
+    const allowPending = this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_VERIFICATION, [context.getHandler(), context.getClass()]);
+    if (profile.onboardingStatus !== 'verified' && !allowPending) {
+      throw new ForbiddenException({
+        code: 'TELEGRAM_VERIFICATION_REQUIRED',
+        message: 'Verify your Telegram account to continue',
+      });
+    }
+    return true;
   }
 
   private async resolveProfile(authUserId: string, rawEmail: string, metadata: Record<string, unknown>): Promise<Omit<AuthUser, 'aal'>> {
     const email = rawEmail.toLowerCase();
-    const name = String(metadata.name || email.split('@')[0]);
-    const existingResult = await this.db.client.from('profiles').select('id,role,status,email,name,is_trial').eq('auth_user_id', authUserId).maybeSingle();
+    const metadataName = typeof metadata.name === 'string' ? metadata.name.trim() : '';
+    const name = (metadataName || email.split('@')[0]).slice(0, 80);
+    const fields = 'id,role,status,email,name,is_trial,onboarding_status';
+    const existingResult = await this.db.client.from('profiles').select(fields).eq('auth_user_id', authUserId).maybeSingle();
     if (existingResult.error) throw existingResult.error;
     let profile = existingResult.data;
     if (!profile) {
       const result = await this.db.client.from('profiles')
         .insert({ auth_user_id: authUserId, email, name, role: 'client' })
-        .select('id,role,status,email,name,is_trial').single();
+        .select(fields).single();
       if (result.error) throw result.error;
       profile = result.data;
     }
     if (profile.status !== 'active') throw new UnauthorizedException('Account is suspended');
-    return { authUserId, profileId: profile.id, role: profile.role, email: profile.email, name: profile.name, isTrial: profile.is_trial };
+    return {
+      authUserId,
+      profileId: profile.id,
+      role: profile.role,
+      email: profile.email,
+      name: profile.name,
+      isTrial: profile.is_trial,
+      onboardingStatus: profile.onboarding_status,
+    };
   }
 
   private readAal(token: string): 'aal1' | 'aal2' {

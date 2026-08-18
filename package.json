@@ -24,6 +24,7 @@
     "test:github-gost": "node scripts/test-github-gost.mjs",
     "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
     "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs",
+    "telegram:webhook:setup": "node scripts/setup-telegram-webhook.mjs",
     "deploy:redeploy": "bash scripts/redeploy-production.sh"
   },
   "dependencies": {

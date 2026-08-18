@@ -3,7 +3,7 @@ export type SiteLocale = 'en' | 'id';
 // Edit customer-facing EN/ID copy here. Admin-facing copy intentionally remains English.
 export const translations = {
   en: {
-    howItWorks: 'How it works', plans: 'Plans', forOperators: 'For operators', signIn: 'Sign in', customerLogin: 'Customer login',
+    howItWorks: 'How it works', plans: 'Plans', forOperators: 'For operators', signIn: 'Sign in', customerLogin: 'Customer login', createAccount: 'Create account',
     heroBadge: 'US network · hourly rotation', heroTitle: 'Routes you can', heroAccent: 'reason about.', heroBody: 'Rent dependable US SOCKS5 nodes for the work that needs a clean signal. One dashboard, automatic IP rotation, no infrastructure theatre.',
     seeHow: 'See how it works', noLockIn: 'No long-term lock-in', rotateEvery: 'Rotate every 60 min', controlPlane: 'the control plane',
     controlTitle: 'Small surface area. Serious signal.', controlBody: 'Nodenesia keeps the operational model visible: pick a plan, get a node, watch the clock. The network takes care of the rest.',
@@ -22,7 +22,7 @@ export const translations = {
     recentOrders: 'Recent orders', ordersBody: 'Track pending approvals, active subscriptions, and past purchases.',
   },
   id: {
-    howItWorks: 'Cara kerja', plans: 'Paket', forOperators: 'Untuk operator', signIn: 'Masuk', customerLogin: 'Login pelanggan',
+    howItWorks: 'Cara kerja', plans: 'Paket', forOperators: 'Untuk operator', signIn: 'Masuk', customerLogin: 'Login pelanggan', createAccount: 'Buat akun',
     heroBadge: 'Jaringan AS · rotasi per jam', heroTitle: 'Rute yang dapat', heroAccent: 'Anda andalkan.', heroBody: 'Sewa node SOCKS5 AS yang andal untuk pekerjaan yang membutuhkan koneksi bersih. Satu dashboard, rotasi IP otomatis, tanpa kerumitan infrastruktur.',
     seeHow: 'Lihat cara kerjanya', noLockIn: 'Tanpa kontrak jangka panjang', rotateEvery: 'Rotasi setiap 60 menit', controlPlane: 'pusat kendali',
     controlTitle: 'Sederhana di permukaan. Andal di jaringan.', controlBody: 'Nodenesia membuat operasional tetap jelas: pilih paket, dapatkan node, pantau waktunya. Jaringan menangani sisanya.',

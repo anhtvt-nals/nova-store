@@ -5,7 +5,7 @@ Vite/React storefront and dashboard backed by NestJS and Supabase Auth/Postgres.
 ## Local setup
 
 1. Create a Supabase project and run the SQL files in `supabase/migrations` in filename order, then run `supabase/seed.sql` (or use `supabase db push` and `supabase db reset` with the CLI). If the old Clerk schema was already deployed, run `202608130002_supabase_auth.sql` to upgrade it.
-2. In Supabase Authentication, enable the Email provider, then disable **Allow new users to sign up**. Accounts are provisioned only by admins through `/admin/users`; Supabase Admin API bypasses the public-signup setting and auto-confirms each created email.
+2. In Supabase Authentication, enable Email signup, require email confirmation, and enable Cloudflare Turnstile under **Bot and Abuse Protection**. The frontend passes the Turnstile token to Supabase; all new profiles remain Telegram-pending until verification.
 3. Copy `.env.example` to `.env` and fill in the Supabase publishable and secret keys.
 4. Create the first account in Supabase Authentication, copy its immutable Auth user UUID, then explicitly promote that bound profile: `update public.profiles set role = 'admin' where auth_user_id = '<AUTH_USER_UUID>';`. Never bootstrap admin access from an email allowlist.
 5. Visit `/client/security`, enroll TOTP, verify the current session, and set `ADMIN_REQUIRE_MFA=true` before exposing admin routes.
@@ -65,7 +65,58 @@ PROXY_USAGE_OBSERVER_SECRET=<a new random secret of at least 32 characters>
 
 Newly provisioned E2B, Runloop, and Blaxel nodes run a local GOST handler observer every five seconds. The observer reports cumulative connection and byte counters through a node-scoped HMAC URL; Nest accepts only valid tokens and stores the positive delta atomically, so retries do not double-count. Existing nodes must be recreated/rotated once after deployment before they begin reporting.
 
-Public registration is intentionally unavailable. `/sign-up` redirects to `/sign-in`. An admin creates a customer with name, email, and a temporary password from the Users page and communicates those credentials securely to the customer.
+### Telegram-gated registration
+
+Apply `202608180001_telegram_onboarding.sql`,
+`202608180002_integrated_telegram_bot.sql`, and
+`202608180003_harden_telegram_onboarding.sql` before deploying this code. The
+migration marks every existing profile as verified, so current users are not
+interrupted. Profiles created afterwards default to `telegram_pending`, receive
+an empty credit wallet, and may call only `/api/auth/me` plus the Telegram
+start/status endpoints. All business APIs return `403
+TELEGRAM_VERIFICATION_REQUIRED` until verification succeeds.
+
+Configure the Nodenesia API:
+
+```env
+VITE_TURNSTILE_SITE_KEY=<Cloudflare Turnstile site key>
+TELEGRAM_BOT_TOKEN=<BotFather token>
+TELEGRAM_BOT_USERNAME=NodenesiaVerifyBot
+TELEGRAM_GROUP_ID=-1001234567890
+TELEGRAM_GROUP_JOIN_URL=https://t.me/+your-private-invite
+TELEGRAM_WEBHOOK_BASE_URL=https://nodenesia.id
+TELEGRAM_WEBHOOK_PATH_SECRET=<random URL-safe 32+ character secret>
+TELEGRAM_WEBHOOK_HEADER_SECRET=<different random 32+ character secret>
+TELEGRAM_LINK_TOKEN_TTL_SECONDS=600
+```
+
+Add the bot as an administrator in the target Telegram group. Nodenesia stores
+only SHA-256 hashes of ten-minute deep-link tokens. The webhook binds `/start`
+to the Telegram sender, verifies membership with `getChatMember` or a
+`chat_member` update, prevents Telegram/profile reuse in PostgreSQL, changes
+onboarding to `verified`, and grants the configured trial credit atomically. It
+does not automatically create a proxy order.
+
+The hardening migration also returns a verified profile to
+`telegram_pending` when Telegram sends a `left` or `kicked` membership update.
+The same Telegram account can verify again after rejoining, but the immutable
+credit ledger prevents a second trial grant. Keep `chat_member` in the webhook's
+allowed updates and keep the bot as a group administrator.
+
+After the API is publicly reachable, register and inspect the webhook:
+
+```bash
+npm run telegram:webhook:setup
+```
+
+The command verifies `TELEGRAM_BOT_USERNAME` against the BotFather token and
+registers `message`, `chat_member`, and `callback_query` updates at
+`https://nodenesia.id/api/telegram/webhook/<path-secret>` without printing the
+secret URL. Enable **Confirm Email** and Cloudflare Turnstile under Supabase
+Authentication > Bot and Abuse Protection before enabling public signup. The
+same Turnstile challenge is sent for both sign-up and password sign-in; frontend
+validation alone is not a security boundary. Set the Supabase Auth session
+timebox to `259200` seconds so the three-day lifetime is enforced server-side.
 
 Migration `202608140007_security_hardening.sql` must be applied after the provisioning migration. It removes email profile takeover, expires pending reservations after 30 minutes, limits each profile to three pending order groups, reserves resources throughout provisioning, prevents duplicate live tunnel endpoints, enforces provider concurrency in Postgres, and adds renewable provisioning leases.
 

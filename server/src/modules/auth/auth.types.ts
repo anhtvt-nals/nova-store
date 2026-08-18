@@ -5,5 +5,6 @@ export interface AuthUser {
   email: string;
   name: string;
   isTrial: boolean;
+  onboardingStatus: 'telegram_pending' | 'verified';
   aal: 'aal1' | 'aal2';
 }

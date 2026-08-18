@@ -109,6 +109,8 @@ EOF
 write_nginx() {
   log "Writing Nginx virtual host for ${DOMAIN}"
   cat > "$NGINX_SITE" <<EOF
+limit_req_zone \$binary_remote_addr zone=nodenesia_telegram_webhook:10m rate=5r/s;
+
 server {
     listen 80;
     listen [::]:80;
@@ -121,12 +123,30 @@ server {
     add_header X-Frame-Options DENY always;
     add_header Referrer-Policy no-referrer always;
 
+    # Keep the secret path out of access logs and bound unauthenticated work
+    # before it reaches Nest/PostgreSQL. Nest still verifies Telegram's secret
+    # header and applies its own persistent limiter.
+    location ^~ /api/telegram/webhook/ {
+        access_log off;
+        limit_req zone=nodenesia_telegram_webhook burst=20 nodelay;
+        proxy_pass http://127.0.0.1:${API_PORT}/api/telegram/webhook/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+        proxy_buffering off;
+    }
+
     location /api/ {
         proxy_pass http://127.0.0.1:${API_PORT}/api/;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        # Overwrite rather than append so clients cannot inject a trusted
+        # forwarding chain. Nest trusts only this loopback Nginx hop.
+        proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 180s;
         proxy_buffering off;

@@ -12,6 +12,7 @@ import { HealthController } from './modules/health.controller';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ProxyModule } from './modules/proxy/proxy.module';
 import { StaticResidentialModule } from './modules/static-residential/static-residential.module';
+import { TelegramOnboardingModule } from './modules/telegram-onboarding/telegram-onboarding.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { StaticResidentialModule } from './modules/static-residential/static-res
     AdminModule,
     ProxyModule,
     StaticResidentialModule,
+    TelegramOnboardingModule,
   ],
   controllers: [HealthController],
   providers: [

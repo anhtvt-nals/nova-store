@@ -15,9 +15,10 @@ import {
   getGetAdminOverviewQueryKey, getGetClientOverviewQueryKey, getGetOrderConnectionQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey, getListCategoriesQueryKey, getListClientOrdersQueryKey, getListClientProxyNodesQueryKey, getListNodesQueryKey,
   getCreditWalletsQueryKey, getCurrentUserQueryKey, getGeneralSettingsQueryKey, getListPlansQueryKey, getListProviderApiKeysQueryKey, getListProvidersQueryKey, getListSandboxKeysQueryKey, getListUsersQueryKey, getProxySettingsQueryKey, getStaticResidentialInventoryQueryKey, getStaticResidentialOrdersQueryKey, getStaticResidentialPricingQueryKey, subscribeToProxyNodeEvents,
+  getTelegramVerificationStatusQueryKey, useStartTelegramVerification, useTelegramVerificationStatus,
 } from '@/lib/api-client';
 import type {
-  AdminOrder, AdminProduct, CatalogProduct, Category, CreditWallet, GeneralSettings, PaginatedAdminOrders, Plan, ProductInput, ProxyNode, ProxyProvider, ProviderApiKey, RuntimeProxyNode, SandboxKey, User, Order, ConnectionDetails, StaticResidentialOrder,
+  AdminOrder, AdminProduct, CatalogProduct, Category, CreditWallet, CurrentUser, GeneralSettings, PaginatedAdminOrders, Plan, ProductInput, ProxyNode, ProxyProvider, ProviderApiKey, RuntimeProxyNode, SandboxKey, User, Order, ConnectionDetails, StaticResidentialOrder,
 } from '@/lib/api-client';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -36,6 +37,15 @@ const communityLinks = {
   telegram: 'https://t.me/+WH5hnlakrEs3ZjFl',
   whatsapp: 'https://chat.whatsapp.com/Bp30pcOwelIEI7MFXSBj2d',
 } as const;
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: Record<string, unknown>) => string;
+      remove: (widgetId: string) => void;
+    };
+  }
+}
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 const money = (value = 0) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -138,7 +148,7 @@ function State({ loading, error, onRetry, children, empty }: { loading?: boolean
 
 function PublicNav() {
   const { t } = useLocalePreferences();
-  return <header className="absolute inset-x-0 top-0 z-20"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10"><Logo inverse /><nav className="hidden items-center gap-8 text-sm text-slate-300 md:flex"><a href="#how-it-works" data-testid="link-how-it-works">{t('howItWorks')}</a><a href="#plans" data-testid="link-plans">{t('plans')}</a><a href="#operators" data-testid="link-operators">{t('forOperators')}</a></nav><div className="flex items-center gap-2"><LocaleSwitcher inverse /><Link href="/sign-in" className="hidden px-3 py-2 text-sm font-bold text-slate-200 hover:text-white sm:inline-flex" data-testid="link-sign-in">{t('signIn')}</Link><Link href="/sign-in" aria-label={t('customerLogin')} title={t('customerLogin')} className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#f46c43] text-white shadow-lg shadow-orange-900/20 hover:bg-[#ff7b51] sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm sm:font-bold" data-testid="link-get-started"><LogIn size={17} className="sm:hidden" /><span className="hidden sm:inline">{t('customerLogin')}</span><ArrowRight size={15} className="hidden sm:block" /></Link></div></div></header>;
+  return <header className="absolute inset-x-0 top-0 z-20"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10"><Logo inverse /><nav className="hidden items-center gap-8 text-sm text-slate-300 md:flex"><a href="#how-it-works" data-testid="link-how-it-works">{t('howItWorks')}</a><a href="#plans" data-testid="link-plans">{t('plans')}</a><a href="#operators" data-testid="link-operators">{t('forOperators')}</a></nav><div className="flex items-center gap-2"><LocaleSwitcher inverse /><Link href="/sign-up" className="hidden px-3 py-2 text-sm font-bold text-slate-200 hover:text-white sm:inline-flex" data-testid="link-sign-up">{t('createAccount')}</Link><Link href="/sign-in" aria-label={t('customerLogin')} title={t('customerLogin')} className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#f46c43] text-white shadow-lg shadow-orange-900/20 hover:bg-[#ff7b51] sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm sm:font-bold" data-testid="link-get-started"><LogIn size={17} className="sm:hidden" /><span className="hidden sm:inline">{t('customerLogin')}</span><ArrowRight size={15} className="hidden sm:block" /></Link></div></div></header>;
 }
 
 function NetworkOrb() {
@@ -1242,33 +1252,134 @@ function PostAuthRedirect() {
 
   if (identity.isLoading) return <div className="grid min-h-[100dvh] place-items-center bg-[#f4f8f8]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
   if (identity.isError) return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3] px-4"><div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-xl"><CircleAlert className="mx-auto text-red-500" /><h1 className="mt-4 text-xl font-extrabold text-[#142037]">Unable to load your account</h1><p className="mt-2 text-sm text-slate-500">Check that the API server is running, then try again.</p><div className="mt-6 flex justify-center gap-3"><Button onClick={() => void identity.refetch()}>Try again</Button><Button variant="outline" onClick={() => void signOut()}>Sign out</Button></div></div></div>;
+  if (identity.data?.onboardingStatus !== 'verified') return <Redirect to="/verify-telegram" />;
   if (identity.data?.role === 'admin') return <Redirect to={identity.data.aal === 'aal2' ? '/admin' : '/admin/security'} />;
   return <Redirect to="/client" />;
 }
 
-function AuthPage() {
+function TurnstileChallenge({ onToken }: { onToken: (token: string) => void }) {
+  const container = useRef<HTMLDivElement>(null);
+  const widgetId = useRef('');
+  const siteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim();
+
+  useEffect(() => {
+    if (!siteKey || !container.current) return;
+    let cancelled = false;
+    const render = () => {
+      if (cancelled || !container.current || !window.turnstile || widgetId.current) return;
+      widgetId.current = window.turnstile.render(container.current, {
+        sitekey: siteKey,
+        theme: 'light',
+        callback: (token: string) => onToken(token),
+        'expired-callback': () => onToken(''),
+        'error-callback': () => onToken(''),
+      });
+    };
+    const existing = document.querySelector<HTMLScriptElement>('script[data-nodenesia-turnstile]');
+    if (window.turnstile) render();
+    else if (existing) existing.addEventListener('load', render, { once: true });
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.defer = true;
+      script.dataset.nodenesiaTurnstile = 'true';
+      script.addEventListener('load', render, { once: true });
+      document.head.appendChild(script);
+    }
+    return () => {
+      cancelled = true;
+      existing?.removeEventListener('load', render);
+      if (widgetId.current && window.turnstile) window.turnstile.remove(widgetId.current);
+      widgetId.current = '';
+    };
+  }, [onToken, siteKey]);
+
+  if (!siteKey) return import.meta.env.PROD
+    ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">Registration protection is not configured. Contact support.</div>
+    : null;
+  return <div ref={container} className="min-h-[65px]" />;
+}
+
+function AuthPage({ mode = 'sign-in' }: { mode?: 'sign-in' | 'sign-up' }) {
   const { user, loading } = useAuth();
+  const isSignup = mode === 'sign-up';
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const turnstileRequired = Boolean(String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()) || import.meta.env.PROD;
 
   if (!loading && user) return <PostAuthRedirect />;
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setPending(true); setError('');
+    setPending(true); setError(''); setMessage('');
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (turnstileRequired && !captchaToken) throw new Error('Complete the security check before continuing.');
+      const { data, error: authError } = isSignup
+        ? await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password,
+          options: { data: { name: name.trim() }, captchaToken: captchaToken || undefined },
+        })
+        : await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+          options: { captchaToken: captchaToken || undefined },
+        });
       if (authError) throw authError;
+      if (isSignup && !data.session) {
+        setMessage('Check your inbox and confirm your email. After signing in, Telegram verification is required before dashboard access.');
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Authentication failed');
+      setError(caught instanceof Error ? caught.message : isSignup ? 'Registration failed' : 'Authentication failed');
     } finally {
+      if (turnstileRequired) {
+        setCaptchaToken('');
+        setCaptchaAttempt(value => value + 1);
+      }
       setPending(false);
     }
   };
 
-  return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3] px-4 py-10"><div className="absolute left-6 top-6"><Logo /></div><div className="w-full max-w-[440px] rounded-3xl bg-white p-7 shadow-xl sm:p-9"><p className="mono text-[10px] uppercase tracking-[.18em] text-[#e4643d]">secure workspace</p><h1 className="mt-3 text-3xl font-extrabold tracking-[-.05em] text-[#142037]">Welcome back</h1><p className="mt-2 text-sm text-slate-500">Sign in with the account provided by your administrator.</p><form onSubmit={submit} className="mt-7 grid gap-4"><label className="text-sm font-bold text-[#142037]">Email<input required type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} className="mt-2 block w-full rounded-xl border border-[#d9e2e6] bg-[#f3f7f8] px-4 py-3 font-normal outline-none focus:border-[#f46c43]" /></label><label className="text-sm font-bold text-[#142037]">Password<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} className="mt-2 block w-full rounded-xl border border-[#d9e2e6] bg-[#f3f7f8] px-4 py-3 font-normal outline-none focus:border-[#f46c43]" /></label>{error && <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}<Button type="submit" disabled={pending} className="mt-1 w-full">{pending ? 'Please wait…' : 'Sign in'}</Button></form><div className="mt-6 border-t border-[#edf2f3] pt-5 text-center"><p className="text-xs leading-5 text-slate-500">Need an account? Request access through our community.</p><CommunityLinks className="mt-3" /></div></div></div>;
+  return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3] px-4 py-10"><div className="absolute left-6 top-6"><Logo /></div><div className="w-full max-w-[440px] rounded-3xl bg-white p-7 shadow-xl sm:p-9"><p className="mono text-[10px] uppercase tracking-[.18em] text-[#e4643d]">secure workspace</p><h1 className="mt-3 text-3xl font-extrabold tracking-[-.05em] text-[#142037]">{isSignup ? 'Create your account' : 'Welcome back'}</h1><p className="mt-2 text-sm text-slate-500">{isSignup ? 'Confirm your email, then verify Telegram to unlock your workspace and trial credit.' : 'Sign in to your Nodenesia workspace.'}</p><form onSubmit={submit} className="mt-7 grid gap-4">{isSignup && <label className="text-sm font-bold text-[#142037]">Name<input required minLength={2} maxLength={80} autoComplete="name" value={name} onChange={event => setName(event.target.value)} className="mt-2 block w-full rounded-xl border border-[#d9e2e6] bg-[#f3f7f8] px-4 py-3 font-normal outline-none focus:border-[#f46c43]" /></label>}<label className="text-sm font-bold text-[#142037]">Email<input required type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} className="mt-2 block w-full rounded-xl border border-[#d9e2e6] bg-[#f3f7f8] px-4 py-3 font-normal outline-none focus:border-[#f46c43]" /></label><label className="text-sm font-bold text-[#142037]">Password<input required type="password" minLength={10} autoComplete={isSignup ? 'new-password' : 'current-password'} value={password} onChange={event => setPassword(event.target.value)} className="mt-2 block w-full rounded-xl border border-[#d9e2e6] bg-[#f3f7f8] px-4 py-3 font-normal outline-none focus:border-[#f46c43]" /></label><TurnstileChallenge key={captchaAttempt} onToken={setCaptchaToken} />{error && <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}{message && <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</div>}<Button type="submit" disabled={pending || (turnstileRequired && !captchaToken)} className="mt-1 w-full">{pending ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}</Button></form><div className="mt-6 border-t border-[#edf2f3] pt-5 text-center"><p className="text-xs leading-5 text-slate-500">{isSignup ? 'Already have an account?' : 'New to Nodenesia?'}</p><Link href={isSignup ? '/sign-in' : '/sign-up'} className="mt-2 inline-flex text-sm font-bold text-[#d95432] hover:text-[#b33f24]">{isSignup ? 'Sign in' : 'Create an account'}</Link><CommunityLinks className="mt-3" /></div></div></div>;
+}
+
+function TelegramVerificationPage() {
+  const { user, loading, signOut } = useAuth();
+  const [, setLocation] = useLocation();
+  const qc = useQueryClient();
+  const identity = useCurrentUser({ query: { enabled: Boolean(user), refetchInterval: 3_000 } });
+  const status = useTelegramVerificationStatus({ query: { enabled: Boolean(user), refetchInterval: 3_000 } });
+  const [link, setLink] = useState<{ telegramUrl: string; expiresAt: string } | null>(null);
+  const start = useStartTelegramVerification({
+    onSuccess: data => {
+      if (data.alreadyVerified) {
+        qc.setQueryData(getCurrentUserQueryKey(), (current: CurrentUser | undefined) => current ? { ...current, onboardingStatus: 'verified' as const } : current);
+        void qc.invalidateQueries({ queryKey: getCurrentUserQueryKey() });
+        setLocation('/client');
+      } else if (data.telegramUrl && data.expiresAt) setLink({ telegramUrl: data.telegramUrl, expiresAt: data.expiresAt });
+    },
+  });
+
+  useEffect(() => {
+    if (identity.data?.onboardingStatus === 'verified' || status.data?.onboardingStatus === 'verified') {
+      qc.setQueryData(getCurrentUserQueryKey(), (current: CurrentUser | undefined) => current ? { ...current, onboardingStatus: 'verified' as const } : current);
+      void qc.invalidateQueries({ queryKey: getCurrentUserQueryKey() });
+      void qc.invalidateQueries({ queryKey: getTelegramVerificationStatusQueryKey() });
+      setLocation('/client');
+    }
+  }, [identity.data?.onboardingStatus, status.data?.onboardingStatus, qc, setLocation]);
+
+  if (loading || identity.isLoading) return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
+  if (!user) return <Redirect to="/sign-in" />;
+  const error = start.error?.message || (identity.isError || status.isError ? 'Unable to load verification status.' : '');
+  return <div className="grid min-h-[100dvh] place-items-center bg-[#eaf3f3] px-4 py-10"><div className="absolute left-6 top-6"><Logo /></div><div className="w-full max-w-lg rounded-3xl bg-white p-7 shadow-xl sm:p-9"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#def5f3] text-[#13716e]"><Send size={22} /></div><p className="mono mt-6 text-[10px] uppercase tracking-[.18em] text-[#e4643d]">account verification</p><h1 className="mt-3 text-3xl font-extrabold tracking-[-.05em] text-[#142037]">Verify with Telegram</h1><p className="mt-3 text-sm leading-6 text-slate-500">Your account exists, but proxy, credit and dashboard APIs remain locked until your Telegram membership is verified.</p><div className="mt-6 grid gap-3 rounded-2xl bg-[#f4f8f8] p-4 text-sm text-slate-600"><p><strong className="text-[#142037]">1.</strong> Create a secure one-time verification link.</p><p><strong className="text-[#142037]">2.</strong> Open the bot and join the Nodenesia community.</p><p><strong className="text-[#142037]">3.</strong> Return here; this page checks verification automatically.</p></div>{error && <div className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}{link ? <div className="mt-6"><a href={link.telegramUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#229ED9] px-4 text-sm font-bold text-white hover:bg-[#168ac1]"><Send size={16} /> Continue in Telegram</a><p className="mt-2 text-center text-xs text-slate-400">Link expires {new Date(link.expiresAt).toLocaleTimeString()}</p><Button variant="outline" className="mt-3 w-full" onClick={() => { void identity.refetch(); void status.refetch(); }}><RefreshCw size={15} /> Check verification</Button></div> : <Button className="mt-6 w-full" disabled={start.isPending} onClick={() => start.mutate()}>{start.isPending ? <><RefreshCw size={15} className="animate-spin" /> Preparing…</> : <><Send size={15} /> Connect Telegram</>}</Button>}<button className="mx-auto mt-6 block text-xs font-bold text-slate-500 hover:text-[#142037]" onClick={() => void signOut().then(() => { queryClient.clear(); setLocation('/'); })}>Sign out</button></div></div>;
 }
 
 function AuthCacheInvalidator() {
@@ -1298,9 +1409,10 @@ type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-static-reside
 function Protected({ page }: { page: ProtectedPage }) {
   const { user, loading } = useAuth();
   const admin = page.startsWith('admin-');
-  const identity = useCurrentUser({ query: { enabled: Boolean(user && admin) } });
-  if (loading || (admin && user && identity.isLoading)) return <div className="grid min-h-[100dvh] place-items-center bg-[#f4f8f8]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
+  const identity = useCurrentUser({ query: { enabled: Boolean(user) } });
+  if (loading || (user && identity.isLoading)) return <div className="grid min-h-[100dvh] place-items-center bg-[#f4f8f8]"><RefreshCw className="animate-spin text-[#f46c43]" /></div>;
   if (!user) return <Redirect to="/sign-in" />;
+  if (!identity.isError && identity.data?.onboardingStatus !== 'verified') return <Redirect to="/verify-telegram" />;
   if (admin && (identity.isError || identity.data?.role !== 'admin')) return <Redirect to="/client" />;
   if (admin && page !== 'admin-security' && identity.data?.aal !== 'aal2') return <Redirect to="/admin/security" />;
   switch (page) {
@@ -1329,7 +1441,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function RouterViews() {
-  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={AuthPage} /><Route path="/sign-up/*?" component={() => <Redirect to="/sign-in" />} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client/static-residential" component={() => <Protected page="client-static-residential" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/security" component={() => <Protected page="admin-security" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/provisioning-logs" component={() => <Protected page="admin-proxy-provisioning-logs" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/static-residential" component={() => <Protected page="admin-static-residential" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
+  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={() => <AuthPage mode="sign-in" />} /><Route path="/sign-up/*?" component={() => <AuthPage mode="sign-up" />} /><Route path="/verify-telegram" component={TelegramVerificationPage} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client/static-residential" component={() => <Protected page="client-static-residential" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/security" component={() => <Protected page="admin-security" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/provisioning-logs" component={() => <Protected page="admin-proxy-provisioning-logs" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/static-residential" component={() => <Protected page="admin-static-residential" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
 }
 
 function App() {

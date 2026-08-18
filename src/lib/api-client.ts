@@ -171,7 +171,22 @@ export interface CurrentUser {
   name: string;
   role: 'admin' | 'client';
   isTrial: boolean;
+  onboardingStatus: 'telegram_pending' | 'verified';
   aal: 'aal1' | 'aal2';
+}
+export interface TelegramVerificationStatus {
+  onboardingStatus: 'telegram_pending' | 'verified';
+  telegramUsername: string | null;
+  telegramFirstName: string | null;
+  memberStatus: string | null;
+  verifiedAt: string | null;
+}
+export interface TelegramVerificationLink {
+  success: true;
+  alreadyVerified?: boolean;
+  onboardingStatus?: 'verified';
+  telegramUrl?: string;
+  expiresAt?: string;
 }
 export interface OrderQuote {
   unitPrice: number;
@@ -364,6 +379,7 @@ export const getCreditWalletsQueryKey = (page?: number, pageSize?: number) => pa
   ? ['credit-wallets'] as const
   : ['credit-wallets', page, pageSize] as const;
 export const getCurrentUserQueryKey = () => ['current-user'] as const;
+export const getTelegramVerificationStatusQueryKey = () => ['telegram-verification-status'] as const;
 
 export function useListPlans(config?: QueryConfig<Plan[]>) {
   return query(getListPlansQueryKey(), '/catalog/plans', undefined, config);
@@ -450,6 +466,12 @@ export function useCurrentUser(config?: QueryConfig<CurrentUser>) {
       ...config?.query,
     },
   });
+}
+export function useTelegramVerificationStatus(config?: QueryConfig<TelegramVerificationStatus>) {
+  return query(getTelegramVerificationStatusQueryKey(), '/trial/telegram/status', getAccessToken, config);
+}
+export function useStartTelegramVerification(options?: MutationConfig<TelegramVerificationLink, void>) {
+  return useMutation({ mutationFn: () => request<TelegramVerificationLink>('/trial/telegram/start', getAccessToken, { method: 'POST' }), ...options });
 }
 export function useGetClientOverview(config?: QueryConfig<ClientOverview>) {
   return query(getGetClientOverviewQueryKey(), '/client/overview', getAccessToken, config);

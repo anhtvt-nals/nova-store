@@ -1,11 +1,19 @@
 import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import type { NextFunction, Request, Response } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const trustProxy = String(process.env.TRUST_PROXY || 'loopback').trim();
+  if (!trustProxy || /^(true|all|\*)$/i.test(trustProxy)) {
+    throw new Error('TRUST_PROXY must name explicit trusted proxy addresses or subnets; broad trust is unsafe');
+  }
+  // Production Nginx connects over loopback. Express will trust only that hop
+  // and derive req.ip from Nginx's overwritten X-Forwarded-For value.
+  app.set('trust proxy', trustProxy);
   app.setGlobalPrefix('api');
   app.use((_request: Request, response: Response, next: NextFunction) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
