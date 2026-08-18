@@ -132,7 +132,9 @@ process.once('uncaughtException', error => { process.stderr.write(`${error.stack
 process.once('unhandledRejection', error => { process.stderr.write(`${error instanceof Error ? error.stack || error.message : error}\n`); void cleanup(1); });
 
 try {
-  const name = `nodenesia-gost-test-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
+  // CreateOS accepts at most 22 characters for a caller-supplied sandbox name.
+  // This remains unique enough for a one-off test while fitting that limit.
+  const name = `ndg-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
   process.stdout.write(`[nodeops-test] Creating sandbox ${name} (${shape}, ${rootfs})…\n`);
   sandbox = await client.createSandbox({ name, shape, rootfs, egress: ['*'] }, { timeoutMs: readyTimeoutMs });
   process.stdout.write(`[nodeops-test] Sandbox running: ${sandbox.id}\n`);
