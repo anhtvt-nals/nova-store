@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // One-off NodeOps CreateOS sandbox + GOST test. It does not touch the database.
-// On success it destroys the sandbox. Set NODEOPS_TEST_KEEP_ALIVE=true to keep
-// the proxy available until Ctrl+C; SIGINT/SIGTERM always destroys the sandbox.
+// It keeps the proxy available until Ctrl+C; SIGINT/SIGTERM destroys the sandbox.
 // Usage: NODEOPS_TEST_API_KEY='…' npm run test:nodeops-gost
 
 import { randomBytes } from 'node:crypto';
@@ -28,7 +27,6 @@ const tunnelUsername = required('NODEOPS_GOST_TUNNEL_USERNAME', process.env.NODE
 const tunnelPassword = required('NODEOPS_GOST_TUNNEL_PASSWORD', process.env.NODEOPS_GOST_TUNNEL_PASSWORD || process.env.BLAXEL_GOST_TUNNEL_PASSWORD);
 const socksUsername = alphaNumeric(10);
 const socksPassword = alphaNumeric(10);
-const keepAlive = process.env.NODEOPS_TEST_KEEP_ALIVE === 'true';
 const keepOnFailure = process.env.NODEOPS_TEST_KEEP_ON_FAILURE === 'true';
 const execFileAsync = promisify(execFile);
 const client = createClient({ apiKey, baseUrl, timeoutMs: readyTimeoutMs });
@@ -157,12 +155,8 @@ chmod +x /tmp/gost
   const proxyUrl = `socks5://${socksUsername}:${socksPassword}@${publicHost}:${TEST_PORT}`;
   process.stdout.write(`\n[nodeops-test] SOCKS5 ready: ${proxyUrl}\n`);
   await reportProxyEgress();
-  if (keepAlive) {
-    process.stdout.write('[nodeops-test] Keeping sandbox alive; press Ctrl+C to destroy it.\n');
-    await new Promise(() => { setInterval(() => {}, 60000); });
-  }
-  process.stdout.write('[nodeops-test] Test completed; cleaning sandbox…\n');
-  await cleanup(0);
+  process.stdout.write('[nodeops-test] Keeping sandbox alive; press Ctrl+C to destroy it.\n');
+  await new Promise(() => { setInterval(() => {}, 60000); });
 } catch (error) {
   process.stderr.write(`[nodeops-test] ${error instanceof Error ? error.message : error}\n`);
   await diagnose();
