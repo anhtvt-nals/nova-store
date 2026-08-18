@@ -26,6 +26,17 @@ npm run build
 
 Health check: `GET /api/health`. Public catalog endpoints are `GET /api/catalog/plans` and `GET /api/catalog/resources`; all other endpoints require a Supabase access token. Admin endpoints additionally require `profiles.role = 'admin'`.
 
+### Per-node rotation URL
+
+Each active SOCKS5 node has an icon to copy its unique signed rotation URL. It
+is a direct **GET** URL, so call it with `curl '<copied-url>'`. The URL contains
+no proxy credentials, works only
+while the corresponding order is active, changes after an extension, and is
+rate-limited to six calls per minute per source IP. Set a distinct
+`PROXY_ROTATION_URL_SECRET` of at least 32 random characters; the existing
+proxy encryption secret is used only as a backward-compatible fallback. Treat
+the URL as a password: link previews and anyone who obtains it can trigger a rotation.
+
 ### NodeOps CreateOS sandbox + GOST test
 
 This one-off test does not use the database or create an order. It creates one

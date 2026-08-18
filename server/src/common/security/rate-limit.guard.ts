@@ -56,6 +56,7 @@ export class RateLimitGuard implements CanActivate {
     if (method === 'POST' && path === '/static-residential/quote') return { scope: 'static-order-quote', limit: 20, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path.includes('/static-residential/orders/') && path.endsWith('/extend')) return { scope: 'static-order-extend', limit: 5, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/admin/static-residential/inventory/import') return { scope: 'static-inventory-import', limit: 5, windowMs: 60_000, persistent: true };
+    if (method === 'GET' && /^\/client\/proxy\/nodes\/\d+\/rotate$/.test(path)) return { scope: 'proxy-rotation-url', limit: 6, windowMs: 60_000, persistent: true };
     if (path.includes('/nodes/events')) return { scope: 'proxy-events', limit: 10, windowMs: 60_000 };
     if (path.startsWith('/admin')) return { scope: 'admin', limit: 180, windowMs: 60_000 };
     if (path.startsWith('/internal/')) return { scope: 'internal', limit: 300, windowMs: 60_000 };

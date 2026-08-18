@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, Ban, Check, ChevronRight, CircleAlert, Copy, Download,
-  FolderTree, Gauge, Globe2, KeyRound, Layers3, LogIn, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
+  FolderTree, Gauge, Globe2, KeyRound, Layers3, Link2, LogIn, LogOut, Menu, MoreHorizontal, Network, Package, Pencil, Plus, RefreshCw, UserCheck,
   MessageCircle, Send, Server, Settings, ShieldCheck, Signal, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import {
@@ -239,6 +239,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
   const remaining = expiresAt ? Math.max(0, expiresAt - now) : 0;
   const progress = expiresAt ? Math.min(100, Math.max(0, ((now - activatedAt) / total) * 100)) : 0;
   const connectionString = `${connection.protocol.toLowerCase()}://${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}`;
+  const rotationUrl = node?.rotationUrl ? new URL(node.rotationUrl, window.location.origin).toString() : null;
   const copy = async (value: string) => {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
     else {
@@ -268,6 +269,7 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
       <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
       <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
       <button onClick={() => void copy(connectionString)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-proxy-${node?.id || order.id}`} aria-label="Copy SOCKS5 proxy" title="Copy SOCKS5 proxy">{copied ? <Check size={11} className="text-[#43cf65]" /> : <Copy size={10} />}</button>
+      {rotationUrl && <button onClick={() => void copy(rotationUrl)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-rotation-url-${node?.id || order.id}`} aria-label="Copy rotation URL" title="Copy rotation URL"><Link2 size={10} /></button>}
       {onRestart && <button onClick={onRestart} disabled={restarting} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`} aria-label="Restart node" title="Restart node"><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} /></button>}
     </div>
     <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">

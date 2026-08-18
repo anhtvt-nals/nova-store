@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
 import { ProxyCredentialService } from './proxy-credential.service';
 import type { ReportProxyNodeStatusDto } from './proxy.dto';
@@ -8,6 +10,7 @@ export class ProxyService {
   constructor(
     private readonly db: DatabaseService,
     private readonly credentials: ProxyCredentialService,
+    private readonly config: ConfigService,
   ) {}
 
   async listForUser(profileId: number) {
@@ -39,6 +42,7 @@ export class ProxyService {
         nextRotationAt: row.next_rotation_at,
         expiresAt: row.expires_at,
         errorMessage: row.error_message ? 'Node provisioning failed. Please contact support.' : null,
+        rotationUrl: orderIsActive ? this.rotationPath(row.id, profileId, row.order_id, order.expires_at) : null,
         connection: orderIsActive && credential && row.public_host && row.tunnel_port
           ? { username: credential.username, password: credential.password, protocol: 'SOCKS5' }
           : null,
@@ -58,6 +62,40 @@ export class ProxyService {
       throw new BadRequestException(message);
     }
     return { jobId: Number(result.data), nodeId, status: 'rotating' as const };
+  }
+
+  async restartWithRotationUrl(nodeId: number, token: string | undefined) {
+    if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new NotFoundException('Rotation URL not found');
+    const result = await this.db.client
+      .from('proxy_nodes')
+      .select('id,profile_id,order_id,orders!inner(status,expires_at)')
+      .eq('id', nodeId)
+      .maybeSingle();
+    const row = this.db.unwrap(result, 'Unable to validate rotation URL') as any;
+    const order = Array.isArray(row?.orders) ? row.orders[0] : row?.orders;
+    const isActive = order?.status === 'active' && order?.expires_at && new Date(order.expires_at).getTime() > Date.now();
+    if (!row || !isActive || !this.matchesRotationToken(token, row.id, row.profile_id, row.order_id, order.expires_at)) {
+      throw new NotFoundException('Rotation URL not found');
+    }
+    return this.restartForUser(Number(row.profile_id), nodeId);
+  }
+
+  private rotationPath(nodeId: number, profileId: number, orderId: number, expiresAt: string) {
+    return `/api/client/proxy/nodes/${nodeId}/rotate?token=${this.rotationToken(nodeId, profileId, orderId, expiresAt)}`;
+  }
+
+  private matchesRotationToken(token: string, nodeId: number, profileId: number, orderId: number, expiresAt: string) {
+    const expected = Buffer.from(this.rotationToken(nodeId, profileId, orderId, expiresAt));
+    const supplied = Buffer.from(token);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  private rotationToken(nodeId: number, profileId: number, orderId: number, expiresAt: string) {
+    const secret = String(this.config.get<string>('PROXY_ROTATION_URL_SECRET') || this.config.get<string>('PROXY_SECRET_ENCRYPTION_KEY') || '');
+    if (secret.length < 32) throw new BadRequestException('Proxy rotation URLs are not configured');
+    return createHmac('sha256', secret)
+      .update(`proxy-rotation-url:v1:${nodeId}:${profileId}:${orderId}:${expiresAt}`)
+      .digest('base64url');
   }
 
   async recreateAllForUser(profileId: number) {

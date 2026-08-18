@@ -51,6 +51,7 @@ export interface RuntimeProxyNode {
   nextRotationAt: string | null;
   expiresAt: string | null;
   errorMessage: string | null;
+  rotationUrl: string | null;
   connection: Pick<ConnectionDetails, 'username' | 'password' | 'protocol'> | null;
 }
 export interface ProxyNodeStreamEvent {
