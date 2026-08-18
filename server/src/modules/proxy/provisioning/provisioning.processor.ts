@@ -218,8 +218,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const sandboxExpiresAt = new Date(Date.now() + ttlMinutes * 60000);
       const nextRotationAt = new Date(sandboxExpiresAt.getTime() - renewBeforeMinutes * 60000);
       const isBlaxel = providerDriver === 'blaxel';
-      const tunnelUsername = this.required(isBlaxel ? 'BLAXEL_GOST_TUNNEL_USERNAME' : 'GOST_TUNNEL_USERNAME');
-      const tunnelPassword = this.required(isBlaxel ? 'BLAXEL_GOST_TUNNEL_PASSWORD' : 'GOST_TUNNEL_PASSWORD');
+      const isGithub = providerDriver === 'github';
+      const wssTunnelPrefix = isGithub ? 'GITHUB_GOST' : isBlaxel ? 'BLAXEL_GOST' : null;
+      const tunnelUsername = this.required(wssTunnelPrefix ? `${wssTunnelPrefix}_TUNNEL_USERNAME` : 'GOST_TUNNEL_USERNAME');
+      const tunnelPassword = this.required(wssTunnelPrefix ? `${wssTunnelPrefix}_TUNNEL_PASSWORD` : 'GOST_TUNNEL_PASSWORD');
 
       instance = await provider.provisionNode({
         nodeId: context.nodeId,
@@ -235,14 +237,14 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
           localPort: Number(this.config.get('GOST_LOCAL_SOCKS_PORT') || 1080),
           publicHost: endpoint.publicHost,
           bindPort: endpoint.tunnelPort,
-          masterHost: isBlaxel
-            ? this.required('BLAXEL_GOST_MASTER_HOST')
+          masterHost: wssTunnelPrefix
+            ? this.required(`${wssTunnelPrefix}_MASTER_HOST`)
             : String(this.config.get('GOST_MASTER_HOST') || endpoint.publicHost),
-          rendezvousPort: Number(this.config.get(isBlaxel ? 'BLAXEL_GOST_RENDEZVOUS_PORT' : 'GOST_RENDEZVOUS_PORT') || (isBlaxel ? 443 : 28443)),
-          tunnelTransport: this.tunnelTransport(isBlaxel ? 'BLAXEL_GOST_TUNNEL_TRANSPORT' : 'GOST_TUNNEL_TRANSPORT', isBlaxel ? 'wss' : 'tcp'),
-          wsPath: isBlaxel ? String(this.config.get('BLAXEL_GOST_WS_PATH') || '/ws') : undefined,
-          tlsSecure: isBlaxel ? true : undefined,
-          tlsServerName: isBlaxel ? this.required('BLAXEL_GOST_MASTER_HOST') : undefined,
+          rendezvousPort: Number(this.config.get(wssTunnelPrefix ? `${wssTunnelPrefix}_RENDEZVOUS_PORT` : 'GOST_RENDEZVOUS_PORT') || (wssTunnelPrefix ? 443 : 28443)),
+          tunnelTransport: this.tunnelTransport(wssTunnelPrefix ? `${wssTunnelPrefix}_TUNNEL_TRANSPORT` : 'GOST_TUNNEL_TRANSPORT', wssTunnelPrefix ? 'wss' : 'tcp'),
+          wsPath: wssTunnelPrefix ? String(this.config.get(`${wssTunnelPrefix}_WS_PATH`) || '/ws') : undefined,
+          tlsSecure: wssTunnelPrefix ? true : undefined,
+          tlsServerName: wssTunnelPrefix ? this.required(`${wssTunnelPrefix}_MASTER_HOST`) : undefined,
           tunnelUsername,
           tunnelPassword,
           socksUsername: accountCredential.username,

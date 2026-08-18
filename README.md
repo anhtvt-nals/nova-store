@@ -73,6 +73,8 @@ Migration `202608140008_dynamic_proxy_allocation.sql` removes static resource al
 
 Migration `202608170007_dynamic_provider_api_key_capacity.sql` makes active provider API-key limits the allocatable sandbox capacity. Set **Max sandboxes for this key** when adding or editing each key (for example, `10`); use the `∞` action on a Provider to remove its aggregate cap, or retain a Provider max only when an explicit cross-key safety ceiling is required. Replacement slots remain reserved across the provider key pool.
 
+Apply `202608170009_balance_provider_capacity_by_utilization.sql` to distribute new reservations across providers and API keys with the same priority by their live utilization ratio. Provider priority remains an explicit override through `proxy_providers.metadata.priority` (lower runs first); with the default equal priority, E2B and GitHub are balanced instead of selecting the oldest provider repeatedly. GitHub nodes use the dedicated `GITHUB_GOST_*` WSS tunnel settings.
+
 To recover from an E2B account-cap incident, stop `nodenesia-api`, apply migrations `202608170007` and `202608170008`, then preview the destructive reset with `npm run reset:e2b-runtime`. The command deletes every sandbox visible to every configured E2B credential, sets each active E2B key to a safe limit (default `10`), releases stale E2B leases, and queues active E2B nodes for replacement. Run the confirmation command printed by the preview only after reviewing its summary.
 
 ### US Static Residential Proxy
