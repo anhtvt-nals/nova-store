@@ -69,7 +69,10 @@ Newly provisioned E2B, Runloop, and Blaxel nodes run a local GOST handler observ
 
 Apply `202608180001_telegram_onboarding.sql`,
 `202608180002_integrated_telegram_bot.sql`, and
-`202608180003_harden_telegram_onboarding.sql` before deploying this code. The
+`202608180003_harden_telegram_onboarding.sql` before deploying this code. Also
+apply `202608180004_fix_rate_limit_bucket_ambiguity.sql` so persistent
+Telegram/order rate limits work on PostgreSQL without ambiguous column
+references. The
 migration marks every existing profile as verified, so current users are not
 interrupted. Profiles created afterwards default to `telegram_pending`, receive
 an empty credit wallet, and may call only `/api/auth/me` plus the Telegram

@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, HttpException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
@@ -12,6 +12,7 @@ interface Bucket {
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
+  private readonly logger = new Logger(RateLimitGuard.name);
   private readonly buckets = new Map<string, Bucket>();
   private requests = 0;
   constructor(
@@ -34,7 +35,10 @@ export class RateLimitGuard implements CanActivate {
     const key = `${identity}:${method}:${policy.scope}`;
     if (policy.persistent) {
       const result = await this.db.client.rpc('consume_api_rate_limit', { bucket_key: key, max_requests: policy.limit, window_seconds: Math.ceil(policy.windowMs / 1000) });
-      if (result.error) throw new HttpException('Rate limiter is unavailable', 503);
+      if (result.error) {
+        this.logger.error(`Persistent rate limiter failed for ${policy.scope}: ${result.error.message}`);
+        throw new HttpException('Rate limiter is unavailable', 503);
+      }
       if (!result.data) throw new HttpException('Too many requests', 429);
       return true;
     }
