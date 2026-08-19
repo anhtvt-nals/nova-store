@@ -92,6 +92,7 @@ export class CreateProviderDto {
   @IsOptional() @IsInt() @Min(1) maxSandboxes?: number | null;
   @IsOptional() @IsInt() @Min(0) reservedReplacementSlots?: number;
   @IsOptional() @IsInt() @Min(1) maxConcurrentProvisions?: number;
+  @IsOptional() @IsIn(['datacenter', 'residential']) proxyType?: 'datacenter' | 'residential';
 }
 
 export class UpdateProviderDto {
@@ -102,6 +103,7 @@ export class UpdateProviderDto {
   @IsOptional() @IsInt() @Min(1) maxSandboxes?: number | null;
   @IsOptional() @IsInt() @Min(0) reservedReplacementSlots?: number;
   @IsOptional() @IsInt() @Min(1) maxConcurrentProvisions?: number;
+  @IsOptional() @IsIn(['datacenter', 'residential']) proxyType?: 'datacenter' | 'residential';
 }
 
 export class CreateProviderApiKeyDto {

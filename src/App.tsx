@@ -196,7 +196,7 @@ function AppShell({ children, admin = false }: { children: ReactNode; admin?: bo
   const nav = admin ? [
     { section: 'Dashboard' }, { href: '/admin', label: 'Dashboard', icon: Gauge },
     { section: 'Info' }, { href: '/admin/info/users', label: 'Users', icon: Users }, { href: '/admin/credits', label: 'Credits', icon: Zap },
-    { section: 'Proxy' }, { href: '/admin/proxy/api-keys', label: 'Provider API keys', icon: KeyRound }, { href: '/admin/proxy/providers', label: 'Providers', icon: Server }, { href: '/admin/proxy/orders', label: 'Orders', icon: Layers3 }, { href: '/admin/proxy/provisioning-logs', label: 'Provisioning logs', icon: Activity }, { href: '/admin/proxy/settings', label: 'Pricing', icon: Settings }, { href: '/admin/static-residential', label: 'Static residential', icon: Globe2 },
+    { section: 'Proxy' }, { href: '/admin/catalog', label: 'Proxy catalog', icon: Package }, { href: '/admin/proxy/api-keys', label: 'Provider API keys', icon: KeyRound }, { href: '/admin/proxy/providers', label: 'Providers', icon: Server }, { href: '/admin/proxy/orders', label: 'Orders', icon: Layers3 }, { href: '/admin/proxy/provisioning-logs', label: 'Provisioning logs', icon: Activity }, { href: '/admin/proxy/settings', label: 'Pricing', icon: Settings }, { href: '/admin/static-residential', label: 'Static residential', icon: Globe2 },
     { section: 'System' }, { href: '/admin/settings', label: 'Settings', icon: Settings },
   ] : [{ section: 'Workspace' }, { href: '/client', label: 'Overview', icon: Gauge }, { href: '/client/nodes', label: 'Nodes', icon: Server }, { href: '/client/orders', label: 'Orders', icon: Layers3 }];
   const currentTarget = location;
@@ -713,7 +713,7 @@ function AdminProvidersPage() {
   const updateProvider = useUpdateProvider();
   const deleteProvider = useDeleteProvider();
   const qc = useQueryClient();
-  const emptyForm = { name: '', code: '', apiBaseUrl: '', maxSandboxes: 20, reservedReplacementSlots: 1, maxConcurrentProvisions: 2 };
+  const emptyForm = { name: '', code: '', apiBaseUrl: '', proxyType: 'datacenter' as 'datacenter' | 'residential', maxSandboxes: 20, reservedReplacementSlots: 1, maxConcurrentProvisions: 2 };
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState<ProxyProvider | null>(null);
   const refresh = () => void qc.invalidateQueries({ queryKey: getListProvidersQueryKey() });
@@ -724,6 +724,7 @@ function AdminProvidersPage() {
       code: editing.code,
       apiBaseUrl: editing.apiBaseUrl || '',
       status: editing.status,
+      proxyType: editing.proxyType,
       maxSandboxes: editing.maxSandboxes ?? 20,
       reservedReplacementSlots: editing.reservedReplacementSlots,
       maxConcurrentProvisions: editing.maxConcurrentProvisions,
@@ -749,6 +750,7 @@ function AdminProvidersPage() {
           <input className={inputClass} placeholder="Provider name" value={editing?.name ?? form.name} onChange={event => editing ? setEditing({ ...editing, name: event.target.value }) : setForm({ ...form, name: event.target.value, code: slugify(event.target.value) })} />
           <input className={inputClass} placeholder="provider-code" value={editing?.code ?? form.code} onChange={event => editing ? setEditing({ ...editing, code: slugify(event.target.value) }) : setForm({ ...form, code: slugify(event.target.value) })} />
           <input className={inputClass} placeholder="API base URL" value={editing?.apiBaseUrl ?? form.apiBaseUrl} onChange={event => editing ? setEditing({ ...editing, apiBaseUrl: event.target.value }) : setForm({ ...form, apiBaseUrl: event.target.value })} />
+          <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Proxy type<select className={`${inputClass} mt-1 w-full`} value={editing?.proxyType ?? form.proxyType} onChange={event => editing ? setEditing({ ...editing, proxyType: event.target.value as ProxyProvider['proxyType'] }) : setForm({ ...form, proxyType: event.target.value as 'datacenter' | 'residential' })}><option value="datacenter">Datacenter</option><option value="residential">Residential</option></select></label>
           <div className="grid grid-cols-3 gap-2">
             <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Max sandbox<input className={`${inputClass} mt-1 w-full`} type="number" min={1} value={editing?.maxSandboxes ?? form.maxSandboxes} onChange={event => setCapacity('maxSandboxes', Math.max(1, Number(event.target.value) || 1))} /></label>
             <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Reserve<input className={`${inputClass} mt-1 w-full`} type="number" min={0} value={editing?.reservedReplacementSlots ?? form.reservedReplacementSlots} onChange={event => setCapacity('reservedReplacementSlots', Math.max(0, Number(event.target.value) || 0))} /></label>
@@ -765,7 +767,7 @@ function AdminProvidersPage() {
           const effectiveLimit = provider.maxSandboxes === null ? keyLimit : keyLimit === null ? provider.maxSandboxes : Math.min(provider.maxSandboxes, keyLimit);
           const customerCapacity = effectiveLimit === null ? null : Math.max(0, effectiveLimit - provider.reservedReplacementSlots);
           return <div key={provider.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#dbe7e9] bg-white p-5">
-            <div><div className="flex items-center gap-2"><p className="font-extrabold">{provider.name}</p><Badge tone={provider.status === 'active' ? 'green' : 'neutral'}>{provider.status}</Badge></div><p className="mono mt-1 text-[10px] text-slate-400">{provider.code} · {provider.apiBaseUrl || 'No API URL'}</p><p className="mt-2 text-xs text-slate-500">{provider.activeSandboxes}/{effectiveLimit ?? '∞'} running · {provider.reservedReplacementSlots} reserved · {customerCapacity ?? '∞'} customer capacity · concurrency {provider.maxConcurrentProvisions}</p><p className="mt-1 text-xs text-slate-400">{activeKeys.length} active keys · key cap {keyLimit ?? '∞'} · provider cap {provider.maxSandboxes ?? 'none'}</p></div>
+            <div><div className="flex items-center gap-2"><p className="font-extrabold">{provider.name}</p><Badge tone={provider.status === 'active' ? 'green' : 'neutral'}>{provider.status}</Badge><Badge tone={provider.proxyType === 'residential' ? 'orange' : 'teal'}>{provider.proxyType}</Badge></div><p className="mono mt-1 text-[10px] text-slate-400">{provider.code} · {provider.apiBaseUrl || 'No API URL'}</p><p className="mt-2 text-xs text-slate-500">{provider.activeSandboxes}/{effectiveLimit ?? '∞'} running · {provider.reservedReplacementSlots} reserved · {customerCapacity ?? '∞'} customer capacity · concurrency {provider.maxConcurrentProvisions}</p><p className="mt-1 text-xs text-slate-400">{activeKeys.length} active keys · key cap {keyLimit ?? '∞'} · provider cap {provider.maxSandboxes ?? 'none'}</p></div>
             <div className="flex gap-1">{provider.maxSandboxes !== null && <button title="Remove provider cap and use API-key capacity" className="rounded-lg p-2 text-slate-400 hover:bg-[#eaf8f6] hover:text-[#13716e]" onClick={() => { if (window.confirm(`Remove the aggregate max for ${provider.name}? Active API-key limits will control capacity.`)) updateProvider.mutate({ id: provider.id, data: { maxSandboxes: null } }, { onSuccess: refresh, onError: error => window.alert(error.message) }); }}>∞</button>}<button className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" onClick={() => setEditing({ ...provider, maxSandboxes: provider.maxSandboxes ?? 20 })}><MoreHorizontal size={17} /></button><button className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => { if (window.confirm(`Delete ${provider.name}?`)) deleteProvider.mutate({ id: provider.id }, { onSuccess: refresh, onError: error => window.alert(error.message) }); }}><Trash2 size={15} /></button></div>
           </div>;
         })}</div>
@@ -828,7 +830,11 @@ function ProxyPriceRow({ setting }: { setting: { id: number; name: string; proxy
 
 function AdminProxySettingsPage() {
   const settings = useProxySettings();
-  return <PageLayout admin eyebrow="proxy module" title="Proxy pricing" body="Set the authoritative price for one node per day. Quote and order totals are always calculated on the server."><State loading={settings.isLoading} error={settings.isError} onRetry={() => settings.refetch()} empty={!settings.data?.length}><div className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white">{settings.data?.map(setting => <ProxyPriceRow key={setting.id} setting={setting} />)}</div></State></PageLayout>;
+  const groups: Array<{ type: 'datacenter' | 'residential'; title: string; body: string }> = [
+    { type: 'datacenter', title: 'Datacenter SOCKS5 pricing', body: 'Price for one datacenter node per day.' },
+    { type: 'residential', title: 'Residential SOCKS5 pricing', body: 'Price for one unlimited-bandwidth residential node per day.' },
+  ];
+  return <PageLayout admin eyebrow="proxy module" title="Proxy pricing" body="Set authoritative per-node, per-day prices by proxy type. Quote and order totals are always calculated on the server."><State loading={settings.isLoading} error={settings.isError} onRetry={() => settings.refetch()} empty={!settings.data?.length}><div className="grid gap-5">{groups.map(group => { const rows = (settings.data || []).filter(setting => setting.proxyType === group.type); return <section key={group.type} className="overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white"><div className="border-b border-[#edf2f3] px-5 py-4"><h2 className="font-extrabold text-[#142037]">{group.title}</h2><p className="mt-1 text-xs text-slate-500">{group.body}</p></div>{rows.length ? rows.map(setting => <ProxyPriceRow key={setting.id} setting={setting} />) : <p className="px-5 py-5 text-sm text-slate-500">No active {group.type} proxy product yet. Create one in Proxy catalog, then return here to set its price.</p>}</section>; })}</div></State></PageLayout>;
 }
 
 function AdminGeneralSettingsPage() {

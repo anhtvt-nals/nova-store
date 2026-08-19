@@ -344,7 +344,7 @@ export class AdminService {
   }
 
   async providers() {
-    const result = await this.db.client.from('proxy_providers').select('id,code,name,api_base_url,status,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions,provider_api_keys(count),resources(count)').order('name');
+    const result = await this.db.client.from('proxy_providers').select('id,code,name,api_base_url,status,metadata,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions,provider_api_keys(count),resources(count)').order('name');
     const rows = this.db.unwrap(result, 'Unable to load providers') as any[];
     const capacity = await this.db.client.from('proxy_nodes').select('provider_id').in('status', ['queued', 'provisioning', 'online', 'rotating', 'degraded', 'offline', 'error', 'terminating']);
     const activeByProvider = new Map<number, number>();
@@ -357,6 +357,7 @@ export class AdminService {
       name: row.name,
       apiBaseUrl: row.api_base_url,
       status: row.status,
+      proxyType: row.metadata?.proxyType === 'residential' ? 'residential' : 'datacenter',
       maxSandboxes: row.max_sandboxes,
       reservedReplacementSlots: row.reserved_replacement_slots,
       maxConcurrentProvisions: row.max_concurrent_provisions,
@@ -373,14 +374,15 @@ export class AdminService {
       max_sandboxes: dto.maxSandboxes || null,
       reserved_replacement_slots: dto.reservedReplacementSlots ?? 1,
       max_concurrent_provisions: dto.maxConcurrentProvisions ?? 2,
-    }).select('id,code,name,api_base_url,status,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions').single();
+      metadata: { proxyType: dto.proxyType || 'datacenter' },
+    }).select('id,code,name,api_base_url,status,metadata,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions').single();
     if (result.error?.code === '23505') throw new ConflictException('Provider code already exists');
     const row = this.db.unwrap(result, 'Unable to create provider');
-    return { id: row.id, code: row.code, name: row.name, apiBaseUrl: row.api_base_url, status: row.status, maxSandboxes: row.max_sandboxes, reservedReplacementSlots: row.reserved_replacement_slots, maxConcurrentProvisions: row.max_concurrent_provisions, keyCount: 0, resourceCount: 0, activeSandboxes: 0 };
+    return { id: row.id, code: row.code, name: row.name, apiBaseUrl: row.api_base_url, status: row.status, proxyType: row.metadata?.proxyType === 'residential' ? 'residential' : 'datacenter', maxSandboxes: row.max_sandboxes, reservedReplacementSlots: row.reserved_replacement_slots, maxConcurrentProvisions: row.max_concurrent_provisions, keyCount: 0, resourceCount: 0, activeSandboxes: 0 };
   }
 
   async updateProvider(id: number, dto: UpdateProviderDto) {
-    const existingResult = await this.db.client.from('proxy_providers').select('max_sandboxes,reserved_replacement_slots').eq('id', id).maybeSingle();
+    const existingResult = await this.db.client.from('proxy_providers').select('max_sandboxes,reserved_replacement_slots,metadata').eq('id', id).maybeSingle();
     const existing = this.db.unwrap(existingResult, 'Unable to validate provider capacity');
     if (!existing) throw new NotFoundException('Provider not found');
     this.validateProviderCapacity(dto.maxSandboxes ?? existing.max_sandboxes ?? undefined, dto.reservedReplacementSlots ?? existing.reserved_replacement_slots);
@@ -392,11 +394,12 @@ export class AdminService {
     if (dto.maxSandboxes !== undefined) values.max_sandboxes = dto.maxSandboxes;
     if (dto.reservedReplacementSlots !== undefined) values.reserved_replacement_slots = dto.reservedReplacementSlots;
     if (dto.maxConcurrentProvisions !== undefined) values.max_concurrent_provisions = dto.maxConcurrentProvisions;
-    const result = await this.db.client.from('proxy_providers').update(values).eq('id', id).select('id,code,name,api_base_url,status,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions').maybeSingle();
+    if (dto.proxyType !== undefined) values.metadata = { ...(existing.metadata || {}), proxyType: dto.proxyType };
+    const result = await this.db.client.from('proxy_providers').update(values).eq('id', id).select('id,code,name,api_base_url,status,metadata,max_sandboxes,reserved_replacement_slots,max_concurrent_provisions').maybeSingle();
     if (result.error?.code === '23505') throw new ConflictException('Provider code already exists');
     const row = this.db.unwrap(result, 'Unable to update provider');
     if (!row) throw new NotFoundException('Provider not found');
-    return { id: row.id, code: row.code, name: row.name, apiBaseUrl: row.api_base_url, status: row.status, maxSandboxes: row.max_sandboxes, reservedReplacementSlots: row.reserved_replacement_slots, maxConcurrentProvisions: row.max_concurrent_provisions };
+    return { id: row.id, code: row.code, name: row.name, apiBaseUrl: row.api_base_url, status: row.status, proxyType: row.metadata?.proxyType === 'residential' ? 'residential' : 'datacenter', maxSandboxes: row.max_sandboxes, reservedReplacementSlots: row.reserved_replacement_slots, maxConcurrentProvisions: row.max_concurrent_provisions };
   }
 
   private validateProviderCapacity(maxSandboxes?: number | null, reservedReplacementSlots?: number) {

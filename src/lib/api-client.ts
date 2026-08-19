@@ -259,6 +259,7 @@ export interface ProxyProvider {
   name: string;
   apiBaseUrl: string | null;
   status: 'active' | 'disabled';
+  proxyType: 'datacenter' | 'residential';
   keyCount: number;
   resourceCount: number;
   maxSandboxes: number | null;
@@ -272,6 +273,7 @@ export type ProxyProviderInput = {
   code?: string;
   apiBaseUrl?: string;
   status?: string;
+  proxyType?: 'datacenter' | 'residential';
   maxSandboxes?: number | null;
   reservedReplacementSlots?: number;
   maxConcurrentProvisions?: number;
