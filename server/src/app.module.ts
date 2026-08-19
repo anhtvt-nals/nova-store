@@ -10,6 +10,7 @@ import { DatabaseModule } from './modules/database/database.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthController } from './modules/health.controller';
 import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { ProxyModule } from './modules/proxy/proxy.module';
 import { StaticResidentialModule } from './modules/static-residential/static-residential.module';
 import { TelegramOnboardingModule } from './modules/telegram-onboarding/telegram-onboarding.module';
@@ -21,6 +22,7 @@ import { TelegramOnboardingModule } from './modules/telegram-onboarding/telegram
     AuthModule,
     CatalogModule,
     OrdersModule,
+    PaymentsModule,
     DashboardModule,
     AdminModule,
     ProxyModule,

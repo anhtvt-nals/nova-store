@@ -194,6 +194,30 @@ The installer pins GOST `3.2.6`, creates an unprivileged `nodenesia-gost` user, 
 
 `worker/app.js` is retained only as reference material and now refuses to start unless `ALLOW_LEGACY_WORKER=true` is explicitly supplied to the process. It is not part of the supported production runtime.
 
+## Sumopod sandbox Credit top-ups
+
+Apply `202608190010_sumopod_credit_topups.sql`, then configure the sandbox
+values from `.env.example`. In the Sumopod project settings, set the webhook
+URL to:
+
+```text
+https://your-domain/api/payments/sumopod/webhook
+```
+
+Use the project's **Svix signing secret** (`whsec_...`) for
+`SUMOPOD_WEBHOOK_SECRET`. Nodenesia requires the signed raw webhook body and
+accepts `payment.completed`, `payment.failed`, and `payment.expired` events.
+Do not configure a browser-accessible API key or use the return URL as payment
+confirmation.
+
+For this sandbox rollout, set both `SUMOPOD_ENABLED=true` and
+`SUMOPOD_SANDBOX_ONLY=true`. The payment-link endpoint is protected by the
+administrator guard (including MFA when enabled), and the billing UI is shown
+only to an administrator. A completed payment is accepted only when its signed
+event, merchant order ID, payment ID, currency, and IDR amount match the
+server-created invoice. The database locks that invoice and records a unique
+ledger reference, so webhook retries cannot add Credit twice.
+
 ## Adding another service
 
 Add a `products` row, its `plans`, and service capacity/endpoints in `resources`. Product-specific behavior belongs in JSON `config`/`capabilities` or a new provisioning adapter; the shared order, payment approval, user, API-key, and usage model stays unchanged.

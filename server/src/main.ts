@@ -6,7 +6,9 @@ import { AppModule } from './app.module';
 import type { NextFunction, Request, Response } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Keep an exact byte copy for signed third-party webhooks. JSON-parsing then
+  // re-serializing a request would invalidate the Sumopod Svix signature.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   const trustProxy = String(process.env.TRUST_PROXY || 'loopback').trim();
   if (!trustProxy || /^(true|all|\*)$/i.test(trustProxy)) {
     throw new Error('TRUST_PROXY must name explicit trusted proxy addresses or subnets; broad trust is unsafe');

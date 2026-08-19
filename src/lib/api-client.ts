@@ -202,6 +202,8 @@ export interface OrderQuote {
   canFulfill: boolean;
 }
 export interface CreditBalance { balance: number; }
+export interface SumopodCheckout { invoiceId: string; paymentUrl: string; expiresAt: string; creditAmount: number; amountIdr: number; }
+export interface SumopodInvoice { id: string; status: 'pending' | 'completed' | 'failed' | 'expired'; amountIdr: number; creditAmount: number; expiresAt: string; completedAt: string | null; }
 export interface ProxyConnectionExport { filename: string; content: string; count: number; }
 export interface Category {
   id: number;
@@ -383,6 +385,7 @@ export const getListClientOrdersQueryKey = () => ['client-orders'] as const;
 export const getGetOrderConnectionQueryKey = (id: number, nodeId?: number) => ['order-connection', id, nodeId ?? 'default'] as const;
 export const getOrderQuoteQueryKey = (productId: number, nodeCount: number, rentalDays: number) => ['order-quote', productId, nodeCount, rentalDays] as const;
 export const getCreditBalanceQueryKey = () => ['credit-balance'] as const;
+export const getSumopodInvoiceQueryKey = (id: string) => ['sumopod-invoice', id] as const;
 export const getStaticResidentialOrdersQueryKey = () => ['static-residential-orders'] as const;
 export const getStaticResidentialQuoteQueryKey = (days: number, quotaGb: number) => ['static-residential-quote', days, quotaGb] as const;
 export const getStaticResidentialInventoryQueryKey = (page?: number, pageSize?: number) => page === undefined
@@ -530,6 +533,12 @@ export function useOrderQuote(productId: number, nodeCount: number, rentalDays: 
 }
 export function useCreditBalance(config?: QueryConfig<CreditBalance>) {
   return query(getCreditBalanceQueryKey(), '/orders/credits/balance', getAccessToken, config);
+}
+export function useCreateSumopodCheckout(options?: MutationConfig<SumopodCheckout, { data: { amountIdr: number; paymentMethod: 'QRIS' | 'QRIS_INSTANT' } }>) {
+  return useMutation({ mutationFn: ({ data }) => request<SumopodCheckout>('/payments/sumopod/checkout', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useSumopodInvoice(id: string | null, config?: QueryConfig<SumopodInvoice>) {
+  return useQuery<SumopodInvoice, Error>({ queryKey: config?.query?.queryKey || getSumopodInvoiceQueryKey(id || 'none'), queryFn: () => request<SumopodInvoice>(`/payments/sumopod/invoices/${id}`, getAccessToken), enabled: Boolean(id), ...config?.query });
 }
 export function useGetAdminOverview(config?: QueryConfig<AdminOverview>) {
   return query(getGetAdminOverviewQueryKey(), '/admin/overview', getAccessToken, config);
