@@ -173,13 +173,6 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const firstPort = Number(this.config.get('GOST_TUNNEL_PORT_MIN') || 30000);
       const lastPort = Number(this.config.get('GOST_TUNNEL_PORT_MAX') || 39999);
       const publicHost = String(this.config.get('GOST_PUBLIC_HOST') || this.required('GOST_MASTER_HOST'));
-      const endpoint = await this.repository.allocateTunnelEndpoint(
-        context.nodeId,
-        this.workerId,
-        publicHost,
-        firstPort,
-        lastPort,
-      );
       const accountCredential = await this.credentials.getOrCreate(context.profileId);
       let oldProviderConfig: Awaited<ReturnType<ProvisioningRepository['providerForTermination']>> | null = null;
       if (replacing && context.providerId && context.providerApiKeyId) {
@@ -203,7 +196,9 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         await oldProvider.terminateInstance(context.currentInstanceId, oldProviderApiKey);
         await this.repository.markInstanceStopped(context.providerId, context.currentInstanceId, 'stopped');
         await this.repository.clearReplacedInstance(context.nodeId, context.currentInstanceId);
-        await this.health.waitUntilUnavailable(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
+        if (context.publicHost && context.tunnelPort) {
+          await this.health.waitUntilUnavailable(context.publicHost, context.tunnelPort, accountCredential.username, accountCredential.password);
+        }
       }
       if (replacing) await this.repository.releaseCustomerCapacity(context.nodeId);
 
@@ -228,6 +223,17 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       }
       providerId = capacity.providerId;
       apiKeyId = capacity.apiKeyId;
+
+      // Tunnel allocation intentionally follows capacity reservation. The RPC
+      // reserves a public port only for a worker that owns a live capacity
+      // lease, preventing an unbounded queue from exhausting master ports.
+      const endpoint = await this.repository.allocateTunnelEndpoint(
+        context.nodeId,
+        this.workerId,
+        publicHost,
+        firstPort,
+        lastPort,
+      );
 
       const providerConfig = await this.repository.provider(capacity.providerId, capacity.apiKeyId);
       providerDriver = providerConfig.driver;
