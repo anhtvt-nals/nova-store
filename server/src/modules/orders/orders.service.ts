@@ -80,25 +80,34 @@ export class OrdersService {
     return mapOrder(order);
   }
 
-  async exportConnections(profileId: number) {
+  async exportConnections(profileId: number, requestedProxyType?: string) {
+    if (requestedProxyType !== undefined && !['datacenter', 'residential'].includes(requestedProxyType)) {
+      throw new BadRequestException('Invalid proxy type');
+    }
     const now = new Date().toISOString();
+    const proxyType = requestedProxyType as 'datacenter' | 'residential' | undefined;
     const [nodesResult, credential] = await Promise.all([
       this.db.client.from('proxy_nodes')
-        .select('id,order_id,public_host,tunnel_port,status,orders!inner(profile_id,status,expires_at)')
+        .select('id,order_id,public_host,tunnel_port,status,orders!inner(profile_id,status,expires_at,products!inner(proxy_type))')
         .eq('orders.profile_id', profileId)
         .eq('orders.status', 'active')
         .gt('orders.expires_at', now)
         .in('status', ['online', 'rotating', 'degraded']),
       this.credentials.get(profileId),
     ]);
-    const nodes = this.db.unwrap(nodesResult, 'Unable to load proxy connections') as any[];
+    let nodes = this.db.unwrap(nodesResult, 'Unable to load proxy connections') as any[];
+    if (proxyType) nodes = nodes.filter(node => {
+      const order = Array.isArray(node.orders) ? node.orders[0] : node.orders;
+      const product = Array.isArray(order?.products) ? order.products[0] : order?.products;
+      return (product?.proxy_type || 'datacenter') === proxyType;
+    });
     if (!credential) throw new NotFoundException('Proxy credentials are not available');
     const encode = (value: string) => encodeURIComponent(value);
     const lines = nodes
       .filter(node => node.public_host && node.tunnel_port)
       .sort((a, b) => Number(a.id) - Number(b.id))
       .map(node => `socks5://${encode(credential.username)}:${encode(credential.password)}@${node.public_host}:${node.tunnel_port}`);
-    return { filename: 'nodenesia-socks5.txt', content: `${lines.join('\n')}${lines.length ? '\n' : ''}`, count: lines.length };
+    return { filename: `nodenesia-${proxyType || 'socks5'}-socks5.txt`, content: `${lines.join('\n')}${lines.length ? '\n' : ''}`, count: lines.length };
   }
 
   private async availableCustomerCapacity() {

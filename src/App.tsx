@@ -8,7 +8,7 @@ import {
 import {
   useCreateCategory, useCreateOrder, useCreateProduct, useCreateSandboxKey, useCreateUser,
   useCreateProvider, useCreateProviderApiKey, useDeleteCategory, useDeleteProduct, useDeleteProvider, useDeleteSandboxKey, useDeleteUser,
-  useCreditBalance, useCurrentUser, useExtendOrder, useExportProxyConnections, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode, useCreateStaticResidentialOrder, useExtendStaticResidentialOrder, useExportStaticResidentialConnections, useListStaticResidentialOrders, useStaticResidentialQuote, useImportStaticResidentialInventory, useCheckStaticResidentialInventoryStatus, useEnableStaticResidentialInventoryProxy, useStaticResidentialInventory, useStaticResidentialPricing, useUpdateStaticResidentialPricing,
+  useCreditBalance, useCurrentUser, useExtendOrder, useExportProxyConnections, useExportResidentialProxyConnections, useOrderQuote, useRecreateAllProxyNodes, useRestartProxyNode, useCreateStaticResidentialOrder, useExtendStaticResidentialOrder, useExportStaticResidentialConnections, useListStaticResidentialOrders, useStaticResidentialQuote, useImportStaticResidentialInventory, useCheckStaticResidentialInventoryStatus, useEnableStaticResidentialInventoryProxy, useStaticResidentialInventory, useStaticResidentialPricing, useUpdateStaticResidentialPricing,
   useGetAdminOverview, useGetClientOverview, useGetOrderConnection, usePaginatedAdminOrders,
   useGeneralSettings, useListAdminProducts, useListCategories, useListClientOrders, useListClientProxyNodes, useListNodes, useListPlans, useListProducts, useListProviderApiKeys, useListProviders, useListSandboxKeys, useListUsers, usePaginatedUsers,
   useAddCreditTopUp, useCancelRunningProxyOrder, useCatalogSettings, useCreditHistory, useCreditWallets, useDeductCredit, useProvisioningJobs, useProxySettings, useResetUserPassword, useRevokeProviderApiKey, useUpdateCategory, useUpdateGeneralSettings, useUpdateOrderStatus, useUpdateProduct, useUpdateProvider, useUpdateProviderApiKey, useUpdateProxyPrice, useUpdateUser,
@@ -330,6 +330,19 @@ function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode 
     protocol: node.connection.protocol,
     nextRotationAt: node.nextRotationAt || '',
   }} node={node} onRestart={canRestart ? requestRestart : undefined} restarting={restart.isPending} />;
+}
+
+function PagedProxyNodeGrid({ nodes, orderById }: { nodes: RuntimeProxyNode[]; orderById: Map<string, Order> }) {
+  const [page, setPage] = useState(1);
+  const pageSize = 6;
+  const totalPages = Math.max(1, Math.ceil(nodes.length / pageSize));
+  const visibleNodes = nodes.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  return <><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => {
+    const order = orderById.get(String(node.orderId));
+    if (!order) return null;
+    return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>;
+  })}</div><Pagination page={page} total={totalPages} onChange={setPage} /></>;
 }
 
 function ProxyNodeStatusCard({ node, onRestart, restarting }: { node: RuntimeProxyNode; onRestart?: () => void; restarting?: boolean }) {
@@ -1267,6 +1280,7 @@ function ClientPortalPage() {
   const qc = useQueryClient();
   const recreateAll = useRecreateAllProxyNodes();
   const exportConnections = useExportProxyConnections();
+  const exportResidentialConnections = useExportResidentialProxyConnections();
   const extendOrder = useExtendOrder();
   const [extendingOrder, setExtendingOrder] = useState<Order | null>(null);
   const [extensionDays, setExtensionDays] = useState(1);
@@ -1330,6 +1344,16 @@ function ClientPortalPage() {
     },
     onError: error => window.alert(error.message),
   });
+  const downloadResidentialConnections = () => exportResidentialConnections.mutate(undefined, {
+    onSuccess: ({ filename, content, count }) => {
+      if (!count) return window.alert('No reachable residential proxy nodes are available to download yet.');
+      const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = filename; anchor.click();
+      URL.revokeObjectURL(url);
+    },
+    onError: error => window.alert(error.message),
+  });
   const submitExtension = () => {
     if (!extendingOrder) return;
     extendOrder.mutate({ id: extendingOrder.id, data: { rentalDays: extensionDays } }, {
@@ -1353,16 +1377,16 @@ function ClientPortalPage() {
 
       <section id="my-services" className="scroll-mt-24 pt-16"><SectionTitle eyebrow={t('portfolio')} title={t('myNodes')} body={t('myNodesBody')} action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={!visibleNodes.length || exportConnections.isPending} onClick={downloadConnections}><Download size={15} />{exportConnections.isPending ? t('preparing') : t('download')}</Button><Button variant="danger" disabled={!recreateNodeTotal || recreateAll.isPending} onClick={() => requestRecreateAll()} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${recreateNodeTotal})`}</Button></div>} />
         {!!activeDatacenterOrders.length && <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{activeDatacenterOrders.map(order => <div key={order.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[#dbe7e9] bg-white px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-bold">Order #{order.id} · {order.nodeCount} nodes</p><p className="mt-1 text-xs text-slate-500">Expires {date(order.expiresAt)}</p></div><Button variant="outline" className="min-h-8 shrink-0 px-3 text-xs" onClick={() => { setExtendingOrder(order); setExtensionDays(1); }}>Extend</Button></div>)}</div>}
-        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!datacenterNodes.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{datacenterNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
+        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!datacenterNodes.length}><PagedProxyNodeGrid nodes={datacenterNodes} orderById={orderById} /></State>
       </section>
 
       <section id="catalog" className="scroll-mt-24 pt-16"><SectionTitle eyebrow={t('catalog')} title={t('socksByCountry')} body={t('catalogBody')} /><State loading={products.isLoading || identity.isLoading} error={products.isError || identity.isError} onRetry={() => { void products.refetch(); void identity.refetch(); }} empty={!services.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">{t('country')}</th><th className="px-4 py-3">{t('proxyService')}</th><th className="px-4 py-3">{t('priceNode')}</th><th className="px-3 py-3">{t('nodes')}</th><th className="px-3 py-3">{t('days')}</th><th className="px-3 py-3">{t('payment')}</th><th className="px-4 py-3">{t('total')}</th><th className="px-4 py-3">{t('action')}</th></tr></thead><tbody>{services.map(service => <ProxyOrderForm key={service.id} product={service} isTrial={identity.data?.isTrial} />)}</tbody></table></div></State></section>
 
       <section id="residential-catalog" className="scroll-mt-24 pt-12"><SectionTitle eyebrow={t('residential')} title={t('residentialSocks')} body={t('residentialCatalogBody')} /><State loading={products.isLoading || identity.isLoading} error={products.isError || identity.isError} onRetry={() => { void products.refetch(); void identity.refetch(); }} empty={!residentialServices.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">{t('country')}</th><th className="px-4 py-3">{t('proxyService')}</th><th className="px-4 py-3">{t('priceNode')}</th><th className="px-3 py-3">{t('nodes')}</th><th className="px-3 py-3">{t('days')}</th><th className="px-3 py-3">{t('payment')}</th><th className="px-4 py-3">{t('total')}</th><th className="px-4 py-3">{t('action')}</th></tr></thead><tbody>{residentialServices.map(service => <ProxyOrderForm key={service.id} product={service} isTrial={identity.data?.isTrial} />)}</tbody></table></div></State></section>
 
-      <section id="residential-nodes" className="scroll-mt-24 pt-8"><SectionTitle eyebrow={t('residential')} title={t('residentialNodes')} body={t('myNodesBody')} action={<Button variant="danger" className="min-h-9 px-3 text-xs" disabled={!residentialRecreateNodeTotal || recreateAll.isPending} onClick={() => requestRecreateAll('residential')} data-testid="button-force-recreate-residential-nodes"><RefreshCw size={14} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${residentialRecreateNodeTotal})`}</Button>} />
+      <section id="residential-nodes" className="scroll-mt-24 pt-8"><SectionTitle eyebrow={t('residential')} title={t('residentialNodes')} body={t('myNodesBody')} action={<div className="flex flex-wrap gap-2"><Button variant="outline" className="min-h-9 px-3 text-xs" disabled={!residentialNodes.length || exportResidentialConnections.isPending} onClick={downloadResidentialConnections} data-testid="button-download-residential-nodes"><Download size={14} />{exportResidentialConnections.isPending ? t('preparing') : t('download')}</Button><Button variant="danger" className="min-h-9 px-3 text-xs" disabled={!residentialRecreateNodeTotal || recreateAll.isPending} onClick={() => requestRecreateAll('residential')} data-testid="button-force-recreate-residential-nodes"><RefreshCw size={14} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${residentialRecreateNodeTotal})`}</Button></div>} />
         {!!activeResidentialOrders.length && <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{activeResidentialOrders.map(order => <div key={order.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[#dbe7e9] bg-white px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-bold">Order #{order.id} · {order.nodeCount} nodes</p><p className="mt-1 text-xs text-slate-500">Expires {date(order.expiresAt)}</p></div><Button variant="outline" className="min-h-8 shrink-0 px-3 text-xs" onClick={() => { setExtendingOrder(order); setExtensionDays(1); }}>{t('extend')}</Button></div>)}</div>}
-        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!residentialNodes.length && !activeResidentialOrders.length}><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{residentialNodes.map(node => { const order = orderById.get(String(node.orderId))!; return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>; })}</div></State>
+        <State loading={orders.isLoading || runtimeNodes.isLoading} error={orders.isError || runtimeNodes.isError} onRetry={() => { void orders.refetch(); void runtimeNodes.refetch(); }} empty={!residentialNodes.length && !activeResidentialOrders.length}><PagedProxyNodeGrid nodes={residentialNodes} orderById={orderById} /></State>
       </section>
 
       <section id="orders" className="scroll-mt-24 pt-16 pb-12"><SectionTitle eyebrow={t('accountHistory')} title={t('recentOrders')} body={t('ordersBody')} /><State loading={orders.isLoading} error={orders.isError} onRetry={() => orders.refetch()} empty={!orders.data?.length}><OrdersTable orders={(orders.data || []).slice(0, 8)} /></State></section>

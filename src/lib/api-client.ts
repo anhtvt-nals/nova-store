@@ -615,6 +615,9 @@ export function useExtendOrder(options?: MutationConfig<Order, { id: number; dat
 export function useExportProxyConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
   return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export', getAccessToken), ...options });
 }
+export function useExportResidentialProxyConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
+  return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export?proxyType=residential', getAccessToken), ...options });
+}
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request(`/client/proxy/nodes/${id}/restart`, getAccessToken, { method: 'POST' }), ...options });
 }
