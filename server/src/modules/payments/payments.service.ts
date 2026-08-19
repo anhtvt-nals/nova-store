@@ -147,7 +147,9 @@ export class PaymentsService {
       ? new Set(['pay-sandbox.sumopod.com', 'pay.sumopod.com'])
       : new Set(['pay.sumopod.com']);
     if (url.protocol !== 'https:' || !allowedHosts.has(url.hostname) || url.username || url.password) {
-      throw new BadGatewayException('Sumopod returned an untrusted payment URL');
+      // Deliberately log only origin metadata; the path/query can contain a
+      // live payment token and must never reach application logs.
+      throw new BadGatewayException(`Sumopod returned an untrusted payment origin: ${url.protocol}//${url.hostname}`);
     }
     return url.toString();
   }
