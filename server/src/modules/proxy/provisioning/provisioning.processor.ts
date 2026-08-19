@@ -170,9 +170,6 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       }
       const replacing = job.action === 'replace';
       const context = await this.repository.context(job.node_id, job.action);
-      const capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, replacing ? 'replacement' : 'customer');
-      providerId = capacity.providerId;
-      apiKeyId = capacity.apiKeyId;
       const firstPort = Number(this.config.get('GOST_TUNNEL_PORT_MIN') || 30000);
       const lastPort = Number(this.config.get('GOST_TUNNEL_PORT_MAX') || 39999);
       const publicHost = String(this.config.get('GOST_PUBLIC_HOST') || this.required('GOST_MASTER_HOST'));
@@ -184,13 +181,23 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         lastPort,
       );
       const accountCredential = await this.credentials.getOrCreate(context.profileId);
+      let oldProviderConfig: Awaited<ReturnType<ProvisioningRepository['providerForTermination']>> | null = null;
+      if (replacing && context.providerId && context.providerApiKeyId) {
+        oldProviderConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
+        // If termination itself reports a suspended/banned account, the catch
+        // path must disable this original key before the next attempt can
+        // select another active key.
+        providerId = context.providerId;
+        apiKeyId = context.providerApiKeyId;
+        providerDriver = oldProviderConfig.driver;
+      }
+      const namespaceReplacement = replacing && oldProviderConfig?.driver === 'namespace' && context.providerId !== null && context.providerApiKeyId !== null;
 
       if (replacing && context.currentInstanceId) {
         // Do not show ROTATING while this replacement waits for capacity. The
         // old endpoint remains usable until we actually begin the cutover.
         await this.proxy.reportStatus(context.nodeId, { status: 'rotating' });
-        if (!context.providerId || !context.providerApiKeyId) throw new Error('Existing proxy instance has no provider assignment');
-        const oldProviderConfig = await this.repository.providerForTermination(context.providerId, context.providerApiKeyId);
+        if (!context.providerId || !context.providerApiKeyId || !oldProviderConfig) throw new Error('Existing proxy instance has no provider assignment');
         const oldProviderApiKey = this.secrets.decryptProviderKey(oldProviderConfig.key);
         const oldProvider = this.providers.get(oldProviderConfig.driver);
         await oldProvider.terminateInstance(context.currentInstanceId, oldProviderApiKey);
@@ -199,6 +206,28 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         await this.health.waitUntilUnavailable(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password);
       }
       if (replacing) await this.repository.releaseCustomerCapacity(context.nodeId);
+
+      // Namespace does not keep replacement headroom on a second tenant key.
+      // After confirming the old sandbox is gone, acquire capacity on the
+      // original key. Retries follow the same rule even when the old instance
+      // ID was already cleared by an earlier failed attempt.
+      let capacity;
+      if (namespaceReplacement) {
+        try {
+          capacity = await this.repository.reserveNamespaceReplacementCapacity(context.nodeId, context.providerId!, context.providerApiKeyId!, this.workerId);
+        } catch (error) {
+          // Sticky-key is the normal Namespace rotation policy. The sole
+          // exception is an inactive original key (typically just disabled
+          // after a banned/suspended response), when a new active key is the
+          // only safe recovery path.
+          if (!/Original Namespace API key is not active/i.test(error instanceof Error ? error.message : String(error))) throw error;
+          capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, 'replacement');
+        }
+      } else {
+        capacity = await this.repository.reserveCapacity(context.nodeId, this.workerId, replacing ? 'replacement' : 'customer');
+      }
+      providerId = capacity.providerId;
+      apiKeyId = capacity.apiKeyId;
 
       const providerConfig = await this.repository.provider(capacity.providerId, capacity.apiKeyId);
       providerDriver = providerConfig.driver;
@@ -325,7 +354,10 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         : job.action === 'replace'
           ? this.rotationRetryDelaySeconds(job.attempts)
           : Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
-      const recordFailure = job.action === 'terminate'
+      const noCapacityAvailable = /no provider capacity or active provider api key is available|original namespace provider has no replacement capacity|original namespace api key has no replacement capacity/i.test(message);
+      const recordFailure = noCapacityAvailable && job.action !== 'terminate'
+        ? this.repository.failTerminal(job.id, this.workerId, message)
+        : job.action === 'terminate'
         ? this.repository.failTermination(job.id, this.workerId, message, delaySeconds)
         : job.action === 'replace'
           ? this.repository.failReplacement(job.id, this.workerId, message, delaySeconds)

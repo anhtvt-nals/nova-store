@@ -134,6 +134,22 @@ export class ProvisioningRepository {
     };
   }
 
+  async reserveNamespaceReplacementCapacity(nodeId: number, providerId: number, apiKeyId: number, workerId: string) {
+    const result = await this.db.client.rpc('reserve_namespace_replacement_capacity', {
+      target_node_id: nodeId,
+      preferred_provider_id: providerId,
+      preferred_api_key_id: apiKeyId,
+      worker_id: workerId,
+      lease_seconds: 600,
+    });
+    const rows = this.db.unwrap(result, 'Unable to reserve original Namespace API key for replacement') as Array<{
+      lease_id: string; selected_provider_id: number; selected_api_key_id: number; provider_code: string;
+    }>;
+    const lease = rows[0];
+    if (!lease) throw new Error('Original Namespace API key has no replacement capacity');
+    return { leaseId: lease.lease_id, providerId: lease.selected_provider_id, apiKeyId: lease.selected_api_key_id, providerCode: lease.provider_code };
+  }
+
   async allocateTunnelEndpoint(nodeId: number, workerId: string, publicHost: string, firstPort: number, lastPort: number) {
     const result = await this.db.client.rpc('allocate_proxy_tunnel_endpoint', {
       target_node_id: nodeId,
@@ -315,5 +331,14 @@ export class ProvisioningRepository {
       retry_delay_seconds: delaySeconds,
     });
     return this.db.unwrap(result, 'Unable to record proxy termination failure') as string;
+  }
+
+  async failTerminal(jobId: number, workerId: string, message: string) {
+    const result = await this.db.client.rpc('fail_proxy_job_terminal', {
+      target_job_id: jobId,
+      worker_id: workerId,
+      failure_message: message,
+    });
+    return this.db.unwrap(result, 'Unable to record terminal provisioning failure') as string;
   }
 }

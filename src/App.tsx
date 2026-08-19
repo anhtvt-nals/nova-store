@@ -1192,15 +1192,18 @@ function ProxyOrderForm({ product, isTrial }: { product: CatalogProduct; isTrial
     });
   };
   const fieldClass = 'w-full rounded-lg border border-[#dbe7e9] bg-white px-2.5 py-2 text-xs text-[#142037] outline-none focus:border-[#f46c43]';
-  const code = product.countryCode || '—';
-  const flag = product.countryCode ? String.fromCodePoint(...product.countryCode.split('').map(char => 127397 + char.charCodeAt(0))) : '🌐';
+  // Residential is sold as a US offering. This is presentation-only: its
+  // system product remains country-neutral in the catalog/data layer.
+  const displayCountryCode = product.countryCode || (product.proxyType === 'residential' ? 'US' : null);
+  const code = displayCountryCode || '—';
+  const flag = displayCountryCode ? String.fromCodePoint(...displayCountryCode.split('').map(char => 127397 + char.charCodeAt(0))) : '🌐';
   const formatCredits = (value: number) => `${value.toLocaleString(locale === 'id' ? 'id-ID' : 'en-US', { maximumFractionDigits: 2 })} ${t('credit').toLowerCase()}`;
   const formatUsd = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
   const formatIdr = (value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
   const unitCreditCost = product.currency === 'USD' ? Math.ceil(product.unitPrice * creditsPerUsd * 100) / 100 : null;
   const unitIdrPrice = product.currency === 'USD' ? product.unitPrice * usdToIdrRate : null;
   let country = code;
-  try { country = product.countryCode ? new Intl.DisplayNames([locale === 'id' ? 'id' : 'en'], { type: 'region' }).of(product.countryCode) || code : t('global'); } catch { country = code; }
+  try { country = displayCountryCode ? new Intl.DisplayNames([locale === 'id' ? 'id' : 'en'], { type: 'region' }).of(displayCountryCode) || code : t('global'); } catch { country = code; }
   return <>
     <tr className="border-b border-[#edf2f3] last:border-0">
       <td className="px-4 py-4"><div className="flex items-center gap-2"><span className="text-xl">{flag}</span><div><p className="text-xs font-bold text-[#142037]">{country}</p><p className="mono text-[9px] text-slate-400">{code}</p></div></div></td>
