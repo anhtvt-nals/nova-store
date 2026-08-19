@@ -144,7 +144,10 @@ export class PaymentsService {
     try { url = new URL(value); } catch { throw new BadGatewayException('Sumopod returned an invalid payment URL'); }
     const apiHost = new URL(apiBaseUrl).hostname;
     const allowedHosts = apiHost === 'api-pay-sandbox.sumopod.com'
-      ? new Set(['pay-sandbox.sumopod.com', 'pay.sumopod.com'])
+      // The Sumopod sandbox currently serves hosted checkout from this
+      // separately branded origin. Keep this an exact allowlist rather than
+      // allowing arbitrary `*.pymnt.global` redirect hosts.
+      ? new Set(['pay-sandbox.sumopod.com', 'pay.sumopod.com', 'sumo.sandbox.pymnt.global'])
       : new Set(['pay.sumopod.com']);
     if (url.protocol !== 'https:' || !allowedHosts.has(url.hostname) || url.username || url.password) {
       // Deliberately log only origin metadata; the path/query can contain a
