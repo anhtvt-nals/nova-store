@@ -196,7 +196,7 @@ function AppShell({ children, admin = false }: { children: ReactNode; admin?: bo
   const nav = admin ? [
     { section: 'Dashboard' }, { href: '/admin', label: 'Dashboard', icon: Gauge },
     { section: 'Info' }, { href: '/admin/info/users', label: 'Users', icon: Users }, { href: '/admin/credits', label: 'Credits', icon: Zap },
-    { section: 'Proxy' }, { href: '/admin/catalog', label: 'Proxy catalog', icon: Package }, { href: '/admin/proxy/api-keys', label: 'Provider API keys', icon: KeyRound }, { href: '/admin/proxy/providers', label: 'Providers', icon: Server }, { href: '/admin/proxy/orders', label: 'Orders', icon: Layers3 }, { href: '/admin/proxy/provisioning-logs', label: 'Provisioning logs', icon: Activity }, { href: '/admin/proxy/settings', label: 'Pricing', icon: Settings }, { href: '/admin/static-residential', label: 'Static residential', icon: Globe2 },
+    { section: 'Proxy' }, { href: '/admin/proxy/api-keys', label: 'Provider API keys', icon: KeyRound }, { href: '/admin/proxy/providers', label: 'Providers', icon: Server }, { href: '/admin/proxy/orders', label: 'Orders', icon: Layers3 }, { href: '/admin/proxy/provisioning-logs', label: 'Provisioning logs', icon: Activity }, { href: '/admin/proxy/settings', label: 'Pricing', icon: Settings }, { href: '/admin/static-residential', label: 'Static residential', icon: Globe2 },
     { section: 'System' }, { href: '/admin/settings', label: 'Settings', icon: Settings },
   ] : [{ section: 'Workspace' }, { href: '/client', label: 'Overview', icon: Gauge }, { href: '/client/nodes', label: 'Nodes', icon: Server }, { href: '/client/orders', label: 'Orders', icon: Layers3 }];
   const currentTarget = location;

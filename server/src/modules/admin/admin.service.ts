@@ -660,7 +660,7 @@ export class AdminService {
   }
 
   async updateProxyPrice(id: number, dto: UpdateProxyPriceDto) {
-    const result = await this.db.client.from('products').update({ base_price: dto.basePrice, currency: dto.currency }).eq('id', id).eq('service_type', 'proxy').select('id,code,name,proxy_type,country_code,base_price,currency,is_active').maybeSingle();
+    const result = await this.db.client.from('products').update({ base_price: dto.basePrice, currency: dto.currency, is_active: dto.basePrice > 0 }).eq('id', id).eq('service_type', 'proxy').select('id,code,name,proxy_type,country_code,base_price,currency,is_active').maybeSingle();
     const row = this.db.unwrap(result, 'Unable to update proxy price');
     if (!row) throw new NotFoundException('Proxy product not found');
     return { id: row.id, code: row.code, name: row.name, proxyType: row.proxy_type || 'datacenter', countryCode: row.country_code, basePrice: Number(row.base_price), currency: row.currency, isActive: row.is_active };
