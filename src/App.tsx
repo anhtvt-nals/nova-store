@@ -334,7 +334,7 @@ function ActiveNodeItem({ order, node }: { order: Order; node: RuntimeProxyNode 
 
 function PagedProxyNodeGrid({ nodes, orderById }: { nodes: RuntimeProxyNode[]; orderById: Map<string, Order> }) {
   const [page, setPage] = useState(1);
-  const pageSize = 6;
+  const pageSize = 9;
   const totalPages = Math.max(1, Math.ceil(nodes.length / pageSize));
   const visibleNodes = nodes.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
@@ -427,7 +427,8 @@ function IconActionButton({ label, onClick, disabled, tone = 'default', testId, 
 
 function Pagination({ page, total, onChange }: { page: number; total: number; onChange: (page: number) => void }) {
   if (total <= 1) return null;
-  return <div className="flex items-center justify-between border-t border-[#edf2f3] px-5 py-3 text-xs text-slate-500"><span>Page {page} of {total}</span><div className="flex gap-2"><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</button><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page >= total} onClick={() => onChange(page + 1)}>Next</button></div></div>;
+  const pages = Array.from(new Set([1, page - 1, page, page + 1, total].filter(item => item >= 1 && item <= total))).sort((left, right) => left - right);
+  return <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf2f3] px-5 py-3 text-xs text-slate-500"><span>Page {page} of {total}</span><div className="flex flex-wrap items-center gap-1"><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</button>{pages.map((item, index) => <span key={item} className="contents">{index > 0 && item - pages[index - 1] > 1 && <span className="px-1 text-slate-400">…</span>}<button className={cx('min-w-7 rounded-lg border px-2 py-1', item === page ? 'border-[#f46c43] bg-[#fff2ed] font-bold text-[#d95432]' : 'border-[#dbe7e9] hover:bg-slate-50')} aria-label={`Go to page ${item}`} aria-current={item === page ? 'page' : undefined} onClick={() => onChange(item)}>{item}</button></span>)}<button className="rounded-lg border border-[#dbe7e9] px-2 py-1 disabled:opacity-40" disabled={page >= total} onClick={() => onChange(page + 1)}>Next</button>{total > 5 && <form key={page} className="ml-1 flex items-center gap-1" onSubmit={event => { event.preventDefault(); const requested = Number(new FormData(event.currentTarget).get('page')); if (Number.isInteger(requested) && requested >= 1 && requested <= total) onChange(requested); }}><input name="page" type="number" min={1} max={total} defaultValue={page} aria-label="Go to page" className="h-7 w-12 rounded-lg border border-[#dbe7e9] px-1 text-center text-xs" /><button className="rounded-lg border border-[#dbe7e9] px-2 py-1 hover:bg-slate-50" type="submit">Go</button></form>}</div></div>;
 }
 
 function UsersTable({ users, loading, onEdit, onDelete, onToggle, onResetPassword, resettingId, pagination }: { users: User[]; loading: boolean; onEdit: (user: User) => void; onDelete: (id: number) => void; onToggle: (user: User) => void; onResetPassword: (user: User) => void; resettingId?: number; pagination?: { page: number; total: number; onChange: (page: number) => void } }) {
