@@ -8,6 +8,10 @@ type SumopodWebhook = {
   event_type?: string;
   data?: { payment_id?: string; order_id?: string; amount?: number; status?: string; completed_at?: string };
 };
+type SumopodCreatePaymentResponse = {
+  payment_id?: string; payment_link_url?: string; expires_at?: string;
+  status?: string; message?: string; error?: string;
+};
 
 @Injectable()
 export class PaymentsService {
@@ -45,11 +49,14 @@ export class PaymentsService {
         body: JSON.stringify({ order_id: merchantOrderId, amount: dto.amountIdr, currency: 'IDR', expires_in_hours: 24, ...(successUrl ? { success_return_url: successUrl } : {}), ...(cancelUrl ? { cancel_return_url: cancelUrl } : {}), payment_method_type_code: dto.paymentMethod }),
         signal: AbortSignal.timeout(8_000),
       });
-      const payload = await response.json().catch(() => null) as { payment_id?: string; payment_link_url?: string; expires_at?: string; status?: string; message?: string } | null;
+      const responseText = await response.text();
+      let payload: SumopodCreatePaymentResponse | null = null;
+      try { payload = JSON.parse(responseText) as SumopodCreatePaymentResponse; } catch { /* handled below with a bounded diagnostic */ }
       if (!response.ok || !payload?.payment_id || !payload.payment_link_url || payload.status !== 'pending') {
-        throw new Error(payload?.message || `Sumopod returned HTTP ${response.status}`);
+        const providerMessage = String(payload?.message || payload?.error || responseText || 'empty response').replace(/[\r\n]+/g, ' ').slice(0, 300);
+        throw new Error(`Sumopod HTTP ${response.status}: ${providerMessage}`);
       }
-      const url = this.parsePaymentUrl(payload.payment_link_url);
+      const url = this.parsePaymentUrl(payload.payment_link_url, baseUrl);
       const update = await this.db.client.from('payment_invoices').update({ provider_payment_id: payload.payment_id, expires_at: payload.expires_at || expiresAt, updated_at: new Date().toISOString() }).eq('id', invoice.id).eq('status', 'pending');
       this.db.unwrap(update, 'Unable to finalize payment invoice');
       return { invoiceId: invoice.id, paymentUrl: url, expiresAt: payload.expires_at || expiresAt, creditAmount, amountIdr: dto.amountIdr };
@@ -132,10 +139,14 @@ export class PaymentsService {
     return url.toString();
   }
 
-  private parsePaymentUrl(value: string) {
+  private parsePaymentUrl(value: string, apiBaseUrl: string) {
     let url: URL;
     try { url = new URL(value); } catch { throw new BadGatewayException('Sumopod returned an invalid payment URL'); }
-    if (url.protocol !== 'https:' || url.hostname !== 'pay.sumopod.com' || url.username || url.password) {
+    const apiHost = new URL(apiBaseUrl).hostname;
+    const allowedHosts = apiHost === 'api-pay-sandbox.sumopod.com'
+      ? new Set(['pay-sandbox.sumopod.com', 'pay.sumopod.com'])
+      : new Set(['pay.sumopod.com']);
+    if (url.protocol !== 'https:' || !allowedHosts.has(url.hostname) || url.username || url.password) {
       throw new BadGatewayException('Sumopod returned an untrusted payment URL');
     }
     return url.toString();
