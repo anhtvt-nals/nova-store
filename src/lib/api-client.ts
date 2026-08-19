@@ -613,7 +613,7 @@ export function useExtendOrder(options?: MutationConfig<Order, { id: number; dat
   return useMutation({ mutationFn: ({ id, data }) => request<Order>(`/orders/${id}/extend`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useExportProxyConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
-  return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export', getAccessToken), ...options });
+  return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export?proxyType=datacenter', getAccessToken), ...options });
 }
 export function useExportResidentialProxyConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
   return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/orders/connections/export?proxyType=residential', getAccessToken), ...options });
