@@ -202,8 +202,8 @@ export interface OrderQuote {
   canFulfill: boolean;
 }
 export interface CreditBalance { balance: number; }
-export interface SumopodCheckout { invoiceId: string; paymentUrl: string; expiresAt: string; creditAmount: number; amountIdr: number; }
-export interface SumopodInvoice { id: string; status: 'pending' | 'completed' | 'failed' | 'expired'; amountIdr: number; creditAmount: number; expiresAt: string; completedAt: string | null; }
+export interface SumopodCheckout { invoiceId: string; paymentUrl: string; expiresAt: string; creditAmount: number; amountIdr: number; feeIdr: number; netAmountIdr: number; }
+export interface SumopodInvoice { id: string; status: 'pending' | 'completed' | 'failed' | 'expired'; amountIdr: number; feeIdr: number | null; netAmountIdr: number | null; creditAmount: number; expiresAt: string; completedAt: string | null; }
 export interface ProxyConnectionExport { filename: string; content: string; count: number; }
 export interface Category {
   id: number;

@@ -6,11 +6,11 @@ import type { CreateSumopodCheckoutDto } from './payments.dto';
 
 type SumopodWebhook = {
   event_type?: string;
-  data?: { payment_id?: string; order_id?: string; amount?: number; status?: string; completed_at?: string };
+  data?: { payment_id?: string; order_id?: string; amount?: number; fee?: number; net_amount?: number; status?: string; completed_at?: string };
 };
 type SumopodCreatePaymentResponse = {
   payment_id?: string; payment_link_url?: string; expires_at?: string;
-  status?: string; message?: string; error?: string;
+  fee?: number; net_amount?: number; status?: string; message?: string; error?: string;
 };
 
 @Injectable()
@@ -31,14 +31,16 @@ export class PaymentsService {
     if (!Number.isFinite(values.credits_per_usd) || values.credits_per_usd <= 0 || !Number.isFinite(values.usd_to_idr_rate) || values.usd_to_idr_rate <= 0) {
       throw new BadRequestException('Credit conversion settings are invalid');
     }
-    const creditAmount = Number(((dto.amountIdr / values.usd_to_idr_rate) * values.credits_per_usd).toFixed(2));
-    if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new BadRequestException('Top-up amount is too small');
+    // This is only a temporary non-zero value required by the existing schema.
+    // It is replaced with the provider-settled net amount before a link is returned.
+    const provisionalCreditAmount = this.creditForIdr(dto.amountIdr, values);
+    if (!Number.isFinite(provisionalCreditAmount) || provisionalCreditAmount <= 0) throw new BadRequestException('Top-up amount is too small');
 
     const merchantOrderId = `NODENESIA-SUMO-${randomUUID()}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
     const invoiceResult = await this.db.client.from('payment_invoices').insert({
       profile_id: profileId, provider: 'sumopod', merchant_order_id: merchantOrderId,
-      amount_idr: dto.amountIdr, credit_amount: creditAmount, expires_at: expiresAt,
+      amount_idr: dto.amountIdr, credit_amount: provisionalCreditAmount, expires_at: expiresAt,
     }).select('id').single();
     const invoice = this.db.unwrap(invoiceResult, 'Unable to create payment invoice');
 
@@ -57,9 +59,19 @@ export class PaymentsService {
         throw new Error(`Sumopod HTTP ${response.status}: ${providerMessage}`);
       }
       const url = this.parsePaymentUrl(payload.payment_link_url, baseUrl);
-      const update = await this.db.client.from('payment_invoices').update({ provider_payment_id: payload.payment_id, expires_at: payload.expires_at || expiresAt, updated_at: new Date().toISOString() }).eq('id', invoice.id).eq('status', 'pending');
+      const feeIdr = this.parseProviderMoney(payload.fee, 'fee');
+      const netAmountIdr = this.parseProviderMoney(payload.net_amount, 'net amount');
+      if (feeIdr === null || netAmountIdr === null || feeIdr < 0 || netAmountIdr <= 0 || netAmountIdr > dto.amountIdr || feeIdr + netAmountIdr !== dto.amountIdr) {
+        throw new Error('Sumopod returned invalid fee settlement');
+      }
+      const creditAmount = this.creditForIdr(netAmountIdr, values);
+      if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new Error('Sumopod net settlement is too small');
+      const update = await this.db.client.from('payment_invoices').update({
+        provider_payment_id: payload.payment_id, provider_fee_idr: feeIdr, net_amount_idr: netAmountIdr,
+        credit_amount: creditAmount, expires_at: payload.expires_at || expiresAt, updated_at: new Date().toISOString(),
+      }).eq('id', invoice.id).eq('status', 'pending');
       this.db.unwrap(update, 'Unable to finalize payment invoice');
-      return { invoiceId: invoice.id, paymentUrl: url, expiresAt: payload.expires_at || expiresAt, creditAmount, amountIdr: dto.amountIdr };
+      return { invoiceId: invoice.id, paymentUrl: url, expiresAt: payload.expires_at || expiresAt, creditAmount, amountIdr: dto.amountIdr, feeIdr, netAmountIdr };
     } catch (error) {
       await this.db.client.from('payment_invoices').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', invoice.id).eq('status', 'pending');
       if (error instanceof BadRequestException) throw error;
@@ -87,8 +99,13 @@ export class PaymentsService {
     if (event.event_type !== 'payment.completed') return { received: true };
     const data = event.data;
     const amount = Number(data?.amount);
+    const feeIdr = data?.fee === undefined ? null : this.parseProviderMoney(data.fee, 'webhook fee');
+    const netAmountIdr = data?.net_amount === undefined ? null : this.parseProviderMoney(data.net_amount, 'webhook net amount');
     if (!data?.payment_id || !data.order_id || !Number.isInteger(amount) || amount <= 0 || data.status !== 'completed') {
       throw new BadRequestException('Invalid Sumopod completed payment payload');
+    }
+    if ((data?.fee !== undefined && feeIdr === null) || (data?.net_amount !== undefined && netAmountIdr === null)) {
+      throw new BadRequestException('Invalid Sumopod settlement payload');
     }
     const completedAt = data.completed_at ? new Date(data.completed_at) : new Date();
     if (Number.isNaN(completedAt.getTime())) throw new BadRequestException('Invalid Sumopod completion timestamp');
@@ -97,6 +114,8 @@ export class PaymentsService {
       target_payment_id: data.payment_id,
       target_event_id: this.optionalOneHeader(headers['svix-id']) || `sumopod-token-${data.payment_id}`,
       target_amount_idr: amount,
+      target_fee_idr: feeIdr,
+      target_net_amount_idr: netAmountIdr,
       target_currency: 'IDR',
       target_completed_at: completedAt.toISOString(),
     });
@@ -108,11 +127,11 @@ export class PaymentsService {
     this.assertSandboxAdminMode();
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(invoiceId)) throw new BadRequestException('Invalid payment invoice');
     const result = await this.db.client.from('payment_invoices')
-      .select('id,status,amount_idr,credit_amount,expires_at,completed_at')
+      .select('id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,expires_at,completed_at')
       .eq('id', invoiceId).eq('profile_id', profileId).eq('provider', 'sumopod').maybeSingle();
     const invoice = this.db.unwrap(result, 'Unable to load payment invoice');
     if (!invoice) throw new BadRequestException('Payment invoice not found');
-    return { id: invoice.id, status: invoice.status, amountIdr: Number(invoice.amount_idr), creditAmount: Number(invoice.credit_amount), expiresAt: invoice.expires_at, completedAt: invoice.completed_at };
+    return { id: invoice.id, status: invoice.status, amountIdr: Number(invoice.amount_idr), feeIdr: invoice.provider_fee_idr === null ? null : Number(invoice.provider_fee_idr), netAmountIdr: invoice.net_amount_idr === null ? null : Number(invoice.net_amount_idr), creditAmount: Number(invoice.credit_amount), expiresAt: invoice.expires_at, completedAt: invoice.completed_at };
   }
 
   private assertSandboxAdminMode() {
@@ -125,6 +144,19 @@ export class PaymentsService {
     const value = this.config.get<string>(key)?.trim();
     if (!value) throw new ServiceUnavailableException(`${key} is not configured`);
     return value;
+  }
+
+  private creditForIdr(amountIdr: number, values: Record<string, number>) {
+    return Number(((amountIdr / values.usd_to_idr_rate) * values.credits_per_usd).toFixed(2));
+  }
+
+  private parseProviderMoney(value: unknown, field: string) {
+    const amount = Number(value);
+    if (!Number.isSafeInteger(amount)) {
+      this.logger.warn(`Sumopod returned invalid ${field}`);
+      return null;
+    }
+    return amount;
   }
 
   private optionalHttpsCallback(key: string) {
