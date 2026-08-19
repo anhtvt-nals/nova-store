@@ -68,4 +68,5 @@ export class AdminController {
     return page === undefined ? this.service.orders() : this.service.orders(Number(page), Number(pageSize));
   }
   @Patch('orders/:id/status') updateOrder(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: UpdateOrderStatusDto) { return this.service.updateOrder(id, body.status, user.profileId); }
+  @Post('orders/:id/cancel') cancelOrder(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.service.cancelRunningProxyOrder(id, user.profileId); }
 }

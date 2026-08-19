@@ -31,3 +31,7 @@ export class ReportProxyNodeStatusDto {
   errorMessage?: string;
 }
 
+export class RecreateAllProxyNodesDto {
+  @IsOptional() @IsIn(['datacenter', 'residential'])
+  proxyType?: 'datacenter' | 'residential';
+}

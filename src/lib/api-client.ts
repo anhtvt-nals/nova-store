@@ -618,8 +618,8 @@ export function useExportProxyConnections(options?: MutationConfig<ProxyConnecti
 export function useRestartProxyNode(options?: MutationConfig<{ jobId: number; nodeId: number; status: 'rotating' }, { id: number }>) {
   return useMutation({ mutationFn: ({ id }) => request(`/client/proxy/nodes/${id}/restart`, getAccessToken, { method: 'POST' }), ...options });
 }
-export function useRecreateAllProxyNodes(options?: MutationConfig<{ nodeIds: number[]; status: 'rotating' }, void>) {
-  return useMutation({ mutationFn: () => request<{ nodeIds: number[]; status: 'rotating' }>('/client/proxy/nodes/recreate-all', getAccessToken, { method: 'POST' }), ...options });
+export function useRecreateAllProxyNodes(options?: MutationConfig<{ nodeIds: number[]; status: 'rotating' }, { proxyType?: 'datacenter' | 'residential' } | undefined>) {
+  return useMutation({ mutationFn: (data) => request<{ nodeIds: number[]; status: 'rotating' }>('/client/proxy/nodes/recreate-all', getAccessToken, { method: 'POST', body: JSON.stringify(data || {}) }), ...options });
 }
 export function useCreateUser(options?: MutationConfig<User, { data: { name: string; email: string } }>) {
   return useMutation({ mutationFn: ({ data }) => request<User>('/admin/users', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
@@ -641,6 +641,9 @@ export function useDeleteSandboxKey(options?: MutationConfig<void, { id: number 
 }
 export function useUpdateOrderStatus(options?: MutationConfig<AdminOrder, { id: number; data: { status: 'active' | 'rejected' } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<AdminOrder>(`/admin/orders/${id}/status`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });
+}
+export function useCancelRunningProxyOrder(options?: MutationConfig<AdminOrder & { terminatedNodeCount: number; queuedTerminationCount: number }, { id: number }>) {
+  return useMutation({ mutationFn: ({ id }) => request<AdminOrder & { terminatedNodeCount: number; queuedTerminationCount: number }>(`/admin/orders/${id}/cancel`, getAccessToken, { method: 'POST' }), ...options });
 }
 export function useCreateCategory(options?: MutationConfig<Category, { data: CategoryInput }>) {
   return useMutation({ mutationFn: ({ data }) => request<Category>('/admin/categories', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });

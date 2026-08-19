@@ -800,4 +800,28 @@ export class AdminService {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
     return { ...mapOrder(row), customerEmail: profile?.email || 'Unknown customer' };
   }
+
+  async cancelRunningProxyOrder(id: number, actorId: number) {
+    const cancellation = await this.db.client.rpc('cancel_proxy_order_by_admin', {
+      target_order_id: id,
+      actor_profile_id: actorId,
+    });
+    const result = this.db.unwrap(cancellation, 'Unable to cancel proxy order') as Array<{
+      terminated_node_count: number;
+      queued_termination_count: number;
+    }>;
+    const summary = result[0];
+    if (!summary) throw new ConflictException('Only running proxy orders can be cancelled');
+
+    const orderResult = await this.db.client.from('orders').select(orderSelect).eq('id', id).maybeSingle();
+    const row = this.db.unwrap(orderResult, 'Unable to reload cancelled order') as any;
+    if (!row) throw new NotFoundException('Order not found');
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+    return {
+      ...mapOrder(row),
+      customerEmail: profile?.email || 'Unknown customer',
+      terminatedNodeCount: Number(summary.terminated_node_count),
+      queuedTerminationCount: Number(summary.queued_termination_count),
+    };
+  }
 }

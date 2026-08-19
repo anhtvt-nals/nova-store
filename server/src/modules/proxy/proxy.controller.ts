@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Param, ParseIntPipe, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query, Sse } from '@nestjs/common';
 import type { Observable } from 'rxjs';
 import type { MessageEvent } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -6,6 +6,7 @@ import type { AuthUser } from '../auth/auth.types';
 import { Public } from '../auth/public.decorator';
 import { ProxyEventsService } from './proxy-events.service';
 import { ProxyService } from './proxy.service';
+import { RecreateAllProxyNodesDto } from './proxy.dto';
 
 @Controller('client/proxy')
 export class ProxyController {
@@ -33,8 +34,8 @@ export class ProxyController {
   }
 
   @Post('nodes/recreate-all')
-  recreateAllNodes(@CurrentUser() user: AuthUser) {
-    return this.proxy.recreateAllForUser(user.profileId);
+  recreateAllNodes(@CurrentUser() user: AuthUser, @Body() dto: RecreateAllProxyNodesDto) {
+    return this.proxy.recreateAllForUser(user.profileId, dto?.proxyType);
   }
 
   @Sse('nodes/events')

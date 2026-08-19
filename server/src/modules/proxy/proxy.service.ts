@@ -98,9 +98,10 @@ export class ProxyService {
       .digest('base64url');
   }
 
-  async recreateAllForUser(profileId: number) {
+  async recreateAllForUser(profileId: number, proxyType?: 'datacenter' | 'residential') {
     const result = await this.db.client.rpc('request_all_proxy_nodes_recreation', {
       target_profile_id: profileId,
+      target_proxy_type: proxyType || null,
     });
     const rows = this.db.unwrap(result, 'Unable to request proxy node recreation') as Array<{
       scheduled_job_id: number;

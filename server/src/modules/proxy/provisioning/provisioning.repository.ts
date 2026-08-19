@@ -102,7 +102,7 @@ export class ProvisioningRepository {
     const row = this.db.unwrap(result, 'Unable to load proxy termination context') as any;
     if (!row) throw new Error('Proxy node not found');
     const order = Array.isArray(row.orders) ? row.orders[0] : row.orders;
-    if (order?.status !== 'expired') throw new Error('Order is not expired');
+    if (!['expired', 'cancelled'].includes(order?.status)) throw new Error('Order is not expired or cancelled');
     return {
       nodeId: row.id as number,
       providerId: row.provider_id as number | null,
