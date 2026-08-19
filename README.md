@@ -207,6 +207,9 @@ https://your-domain/api/payments/sumopod/webhook
 Use the project's **Svix signing secret** (`whsec_...`) for
 `SUMOPOD_WEBHOOK_SECRET`. Nodenesia requires the signed raw webhook body and
 accepts `payment.completed`, `payment.failed`, and `payment.expired` events.
+If Sumopod's dashboard test sends only `X-Webhook-Token`, configure its exact
+project token as `SUMOPOD_WEBHOOK_TOKEN`; it is an authenticated fallback, not
+a browser value.
 Do not configure a browser-accessible API key or use the return URL as payment
 confirmation.
 

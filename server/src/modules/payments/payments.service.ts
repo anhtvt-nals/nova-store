@@ -70,10 +70,7 @@ export class PaymentsService {
 
   async handleSumopodWebhook(headers: Record<string, string | string[] | undefined>, rawBody: Buffer) {
     this.assertSandboxAdminMode();
-    const svixId = this.oneHeader(headers['svix-id']);
-    const svixTimestamp = this.oneHeader(headers['svix-timestamp']);
-    const svixSignature = this.oneHeader(headers['svix-signature']);
-    this.verifySvixSignature(svixId, svixTimestamp, svixSignature, rawBody);
+    this.verifyWebhookAuthenticity(headers, rawBody);
     let event: SumopodWebhook;
     try { event = JSON.parse(rawBody.toString('utf8')) as SumopodWebhook; } catch { throw new BadRequestException('Invalid Sumopod webhook JSON'); }
     if (event.event_type === 'payment.failed' || event.event_type === 'payment.expired') {
@@ -98,7 +95,7 @@ export class PaymentsService {
     const result = await this.db.client.rpc('complete_sumopod_credit_payment', {
       target_merchant_order_id: data.order_id,
       target_payment_id: data.payment_id,
-      target_event_id: svixId,
+      target_event_id: this.optionalOneHeader(headers['svix-id']) || `sumopod-token-${data.payment_id}`,
       target_amount_idr: amount,
       target_currency: 'IDR',
       target_completed_at: completedAt.toISOString(),
@@ -169,9 +166,24 @@ export class PaymentsService {
     if (!signatures.some(signature => this.safeEqual(signature, expected))) throw new UnauthorizedException('Invalid Sumopod webhook signature');
   }
 
+  private verifyWebhookAuthenticity(headers: Record<string, string | string[] | undefined>, rawBody: Buffer) {
+    const suppliedToken = this.optionalOneHeader(headers['x-webhook-token']);
+    const expectedToken = this.config.get<string>('SUMOPOD_WEBHOOK_TOKEN')?.trim();
+    if (suppliedToken && expectedToken && this.safeEqual(suppliedToken, expectedToken)) return;
+    const svixId = this.optionalOneHeader(headers['svix-id']);
+    const svixTimestamp = this.optionalOneHeader(headers['svix-timestamp']);
+    const svixSignature = this.optionalOneHeader(headers['svix-signature']);
+    if (!svixId || !svixTimestamp || !svixSignature) throw new UnauthorizedException('Missing Sumopod webhook signature or token');
+    this.verifySvixSignature(svixId, svixTimestamp, svixSignature, rawBody);
+  }
+
   private oneHeader(value: string | string[] | undefined) {
     if (typeof value !== 'string' || !value || value.length > 2_000) throw new UnauthorizedException('Missing Sumopod webhook signature');
     return value;
+  }
+
+  private optionalOneHeader(value: string | string[] | undefined) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 2_000 ? value : undefined;
   }
 
   private safeEqual(left: string, right: string) {
