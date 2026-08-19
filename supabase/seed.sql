@@ -1,5 +1,5 @@
 insert into public.products(code, name, service_type, description, config)
-values ('socks5-us', 'US SOCKS5 Proxy', 'proxy', 'Rotating SOCKS5 proxy nodes in the United States', '{"protocol":"SOCKS5"}')
+values ('socks5-us', 'SOCKS5 Datacenter - Unlimited Bandwidth', 'proxy', 'Rotating SOCKS5 proxy nodes in the United States', '{"protocol":"SOCKS5"}')
 on conflict (code) do update set name = excluded.name, description = excluded.description;
 
 insert into public.plans(product_id, code, name, description, price, duration_hours, rotation_minutes, highlighted, sort_order, config)
