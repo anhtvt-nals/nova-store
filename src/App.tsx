@@ -341,7 +341,7 @@ function PagedProxyNodeGrid({ nodes, orderById }: { nodes: RuntimeProxyNode[]; o
   return <><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleNodes.map(node => {
     const order = orderById.get(String(node.orderId));
     if (!order) return null;
-    return <div key={node.id} className="min-w-0"><div className="mb-1.5 flex items-center justify-between px-0.5"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>;
+    return <div key={node.id} className={cx('min-w-0 border-t-4', order.proxyType === 'residential' ? 'border-purple-500' : 'border-blue-500')}><div className="mb-1.5 flex items-center justify-between px-0.5 pt-1"><p className="truncate text-[11px] font-bold text-[#142037]">{order.productName}</p><span className="mono ml-2 shrink-0 text-[8px] uppercase text-slate-400">Order #{order.id} · node {node.id}</span></div><ActiveNodeItem order={order} node={node} /></div>;
   })}</div><Pagination page={page} total={totalPages} onChange={setPage} /></>;
 }
 
@@ -1167,21 +1167,61 @@ function SecurityPage() {
   </div>;
 }
 
-function ClientDashboardPage() {
+type CustomerRoute = 'overview' | 'datacenter' | 'residential' | 'orders' | 'nodes' | 'billing';
+
+function CustomerShell({ active, children }: { active: CustomerRoute; children: ReactNode }) {
+  const { user, signOut } = useAuth();
+  const [, setLocation] = useLocation();
+  const identity = useCurrentUser();
+  const creditBalance = useCreditBalance();
   const { t } = useLocalePreferences();
-  const services = [
-    { name: t('clientSocksService'), description: t('clientSocksDescription'), status: 'available', href: '/client/proxy', route: '/client/proxy', icon: Network, tone: 'teal' },
-    { name: t('clientStaticService'), description: t('clientStaticDescription'), status: 'available', href: '/client/static-residential', route: '/client/static-residential', icon: Globe2, tone: 'orange' },
-    { name: t('apiAutomation'), description: t('apiAutomationDescription'), status: 'coming soon', route: '/client/automation', icon: Zap, tone: 'teal' },
-    { name: t('cloudServers'), description: t('cloudServersDescription'), status: 'coming soon', route: '/client/servers', icon: Server, tone: 'orange' },
-  ] as const;
-  return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]"><ClientHeader /><main className="mx-auto max-w-7xl px-5 py-9 pb-28 lg:px-8 lg:py-12"><div className="mb-8"><p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">{t('serviceWorkspace')}</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em] md:text-4xl">{t('chooseService')}</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">{t('serviceIntro')}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{services.map(service => { const Icon = service.icon; const available = service.status === 'available'; const content = <><div className="flex items-start justify-between gap-3"><span className={cx('grid h-11 w-11 place-items-center rounded-2xl', service.tone === 'teal' ? 'bg-[#def5f3] text-[#13716e]' : 'bg-[#fff0e8] text-[#d95432]')}><Icon size={20} /></span><Badge tone={available ? 'green' : 'neutral'}>{available ? t('available') : t('comingSoon')}</Badge></div><h2 className="mt-6 text-lg font-extrabold">{service.name}</h2><p className="mt-2 min-h-12 text-sm leading-6 text-slate-500">{service.description}</p><div className="mt-5 flex items-center justify-between border-t border-[#edf2f3] pt-4"><span className="mono text-[9px] text-slate-400">{service.route}</span>{available && <span className="inline-flex items-center gap-1 text-xs font-bold text-[#e05c37]">{t('open')} <ArrowRight size={13} /></span>}</div></>; return available ? <Link key={service.name} href={service.href} className="rounded-3xl border border-[#dbe7e9] bg-white p-5 transition hover:-translate-y-1 hover:border-[#f46c43] hover:shadow-[0_14px_35px_rgba(20,32,55,.07)]">{content}</Link> : <article key={service.name} aria-disabled="true" className="rounded-3xl border border-[#dbe7e9] bg-white/65 p-5 opacity-75">{content}</article>; })}</div></main></div>;
+  const displayName = String(user?.user_metadata?.name || user?.email?.split('@')[0] || t('customer'));
+  const items = [
+    { key: 'overview' as const, href: '/dashboard', label: 'Overview', icon: Gauge, tone: 'neutral' },
+    { key: 'datacenter' as const, href: '/dashboard/datacenter', label: t('datacenterSocks'), icon: Network, tone: 'blue' },
+    { key: 'residential' as const, href: '/dashboard/residential', label: t('residentialSocks'), icon: Globe2, tone: 'purple' },
+    { key: 'orders' as const, href: '/dashboard/orders', label: 'Orders', icon: Layers3, tone: 'neutral' },
+    { key: 'nodes' as const, href: '/dashboard/nodes', label: 'My Nodes', icon: Server, tone: 'neutral' },
+    { key: 'billing' as const, href: '/dashboard/billing', label: 'Billing', icon: Zap, tone: 'neutral' },
+  ];
+  const itemClass = (item: typeof items[number], compact = false) => cx('flex items-center gap-3 rounded-xl font-bold transition', compact ? 'justify-center p-3 xl:justify-start xl:px-3' : 'px-3 py-2.5', active === item.key ? item.tone === 'blue' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : item.tone === 'purple' ? 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' : 'bg-[#eaf8f6] text-[#13716e]' : 'text-slate-500 hover:bg-[#f4f8f8] hover:text-[#142037]');
+  const logout = () => void signOut().then(() => { queryClient.clear(); setLocation('/'); });
+  return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]"><aside className="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[#dbe7e9] bg-white px-2 py-5 shadow-[4px_0_24px_rgba(20,32,55,.03)] md:flex xl:w-64 xl:px-4"><Link href="/dashboard" className="flex h-11 items-center justify-center xl:justify-start"><Logo /></Link><nav className="mt-8 space-y-1" aria-label="Customer portal"><Link href={items[0].href} title={items[0].label} className={itemClass(items[0], true)}><Gauge size={18} /><span className="hidden xl:inline">{items[0].label}</span></Link><p className="mono mt-6 hidden px-3 text-[9px] font-bold uppercase tracking-[.16em] text-slate-400 xl:block">Services</p>{items.slice(1, 3).map(item => <Link key={item.key} href={item.href} title={item.label} className={itemClass(item, true)}><item.icon size={18} /><span className="hidden xl:inline">{item.label}</span></Link>)}<div className="my-4 border-t border-[#edf2f3]" />{items.slice(3).map(item => <Link key={item.key} href={item.href} title={item.label} className={itemClass(item, true)}><item.icon size={18} /><span className="hidden xl:inline">{item.label}</span></Link>)}</nav><div className="mt-auto hidden rounded-2xl bg-[#f4f8f8] p-3 xl:block"><p className="truncate text-xs font-extrabold">{displayName}</p><p className="mt-1 truncate text-[10px] text-slate-500">{user?.email}</p><div className="mt-3 flex items-center justify-between rounded-xl bg-[#eaf8f6] px-2.5 py-2 text-xs font-extrabold text-[#13716e]"><span>Credit</span><span>{creditBalance.isLoading ? '…' : `${(creditBalance.data?.balance || 0).toLocaleString()} cr`}</span></div></div></aside><div className="min-h-[100dvh] pb-20 md:pl-16 xl:pl-64"><header className="sticky top-0 z-30 flex h-[72px] items-center justify-end gap-2 border-b border-[#dbe7e9] bg-white/90 px-5 backdrop-blur-xl lg:px-8"><LocaleSwitcher /><div className="hidden items-center gap-1.5 rounded-xl border border-[#bfe3df] bg-[#eaf8f6] px-3 py-2 sm:flex"><Zap size={14} className="text-[#13716e]" /><span className="mono text-xs font-extrabold text-[#13716e]">{creditBalance.isLoading ? '…' : `${(creditBalance.data?.balance || 0).toLocaleString()} cr`}</span></div>{identity.data?.role === 'admin' && <Link href="/admin" className="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#13716e] hover:bg-[#def5f3] sm:inline-flex">{t('admin')}</Link>}<button onClick={logout} className="grid h-10 w-10 place-items-center rounded-xl border border-[#dbe7e9] bg-white text-slate-600 hover:border-[#f46c43] hover:text-[#e05c37]" aria-label={t('signOut')}><LogOut size={16} /></button></header>{children}</div><nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-6 border-t border-[#dbe7e9] bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur md:hidden" aria-label="Customer portal">{items.map(item => <Link key={item.key} href={item.href} className={cx('flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[8px] font-bold leading-3', active === item.key ? item.tone === 'blue' ? 'text-blue-700' : item.tone === 'purple' ? 'text-purple-700' : 'text-[#13716e]' : 'text-slate-500')}><item.icon size={17} /><span className="max-w-full truncate">{item.key === 'datacenter' ? 'DC' : item.key === 'residential' ? 'Res' : item.label}</span></Link>)}</nav></div>;
+}
+
+function ClientDashboardPage() {
+  const overview = useGetClientOverview();
+  const { t } = useLocalePreferences();
+  return <CustomerShell active="overview"><main className="mx-auto max-w-7xl px-5 py-9 lg:px-8 lg:py-12"><p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">dashboard</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em] md:text-4xl">Overview</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">Combined live usage across your Datacenter and Residential SOCKS5 services.</p><State loading={overview.isLoading} error={overview.isError} onRetry={() => overview.refetch()}><section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label={t('activeNodes')} value={String(overview.data?.activeNodes ?? 0)} detail="Across all SOCKS5 services" icon={Server} tone="teal" /><Metric label={t('requestsToday')} value={(overview.data?.requestsToday ?? 0).toLocaleString()} detail={t('proxyTraffic')} icon={Activity} tone="orange" /><Metric label={t('totalBandwidth')} value={bytes(overview.data?.totalBandwidthBytes ?? 0)} detail={t('uploadDownload')} icon={Gauge} tone="teal" /><Metric label={t('successRate')} value={`${overview.data?.successRate ?? 0}%`} detail={t('last24Hours')} icon={Signal} tone="orange" /></section><section className="mt-7 grid gap-4 md:grid-cols-2"><Link href="/dashboard/datacenter" className="rounded-3xl border-t-4 border-blue-500 bg-white p-6 shadow-[0_10px_35px_rgba(20,32,55,.04)]"><Badge tone="neutral">SOCKS5 Datacenter</Badge><h2 className="mt-4 text-xl font-extrabold">Scalable rotating proxy nodes</h2><p className="mt-2 text-sm leading-6 text-slate-500">Order and manage high-volume Datacenter nodes.</p><span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-blue-700">Open Datacenter <ArrowRight size={15} /></span></Link><Link href="/dashboard/residential" className="rounded-3xl border-t-4 border-purple-500 bg-white p-6 shadow-[0_10px_35px_rgba(20,32,55,.04)]"><Badge tone="neutral">SOCKS5 Residential</Badge><h2 className="mt-4 text-xl font-extrabold">Residential unlimited bandwidth</h2><p className="mt-2 text-sm leading-6 text-slate-500">Order and manage Residential SOCKS5 nodes separately.</p><span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-purple-700">Open Residential <ArrowRight size={15} /></span></Link></section></State></main></CustomerShell>;
+}
+
+function DashboardOrdersPage() {
+  const orders = useListClientOrders();
+  const [service, setService] = useState<'all' | 'datacenter' | 'residential'>('all');
+  const [status, setStatus] = useState<'all' | Order['status']>('all');
+  const filtered = (orders.data || []).filter(order => (service === 'all' || order.proxyType === service) && (status === 'all' || order.status === status));
+  return <CustomerShell active="orders"><main className="mx-auto max-w-7xl px-5 py-9 lg:px-8 lg:py-12"><p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">account history</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em]">Orders</h1><p className="mt-2 text-sm text-slate-500">Review orders across Datacenter and Residential services.</p><div className="mt-6 flex flex-wrap gap-3"><select aria-label="Filter service" className="rounded-xl border border-[#dbe7e9] bg-white px-3 py-2 text-sm" value={service} onChange={event => setService(event.target.value as typeof service)}><option value="all">All services</option><option value="datacenter">SOCKS5 Datacenter</option><option value="residential">SOCKS5 Residential</option></select><select aria-label="Filter order status" className="rounded-xl border border-[#dbe7e9] bg-white px-3 py-2 text-sm" value={status} onChange={event => setStatus(event.target.value as typeof status)}><option value="all">All statuses</option>{Array.from(new Set((orders.data || []).map(order => order.status))).map(value => <option key={value} value={value}>{value.replace('_', ' ')}</option>)}</select></div><section className="mt-5"><State loading={orders.isLoading} error={orders.isError} onRetry={() => orders.refetch()} empty={!filtered.length}><OrdersTable orders={filtered} /></State></section></main></CustomerShell>;
+}
+
+function DashboardNodesPage() {
+  const orders = useListClientOrders();
+  const nodes = useListClientProxyNodes();
+  const [service, setService] = useState<'all' | 'datacenter' | 'residential'>('all');
+  const orderById = new Map((orders.data || []).map(order => [String(order.id), order]));
+  const filtered = (nodes.data || []).filter(node => node.status !== 'terminated' && orderById.has(String(node.orderId)) && (service === 'all' || orderById.get(String(node.orderId))?.proxyType === service));
+  return <CustomerShell active="nodes"><main className="mx-auto max-w-7xl px-5 py-9 lg:px-8 lg:py-12"><p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">live inventory</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em]">My Nodes</h1><p className="mt-2 text-sm text-slate-500">Filter and manage active nodes across both SOCKS5 services.</p><select aria-label="Filter node service" className="mt-6 rounded-xl border border-[#dbe7e9] bg-white px-3 py-2 text-sm" value={service} onChange={event => setService(event.target.value as typeof service)}><option value="all">All services</option><option value="datacenter">SOCKS5 Datacenter</option><option value="residential">SOCKS5 Residential</option></select><section className="mt-5"><State loading={orders.isLoading || nodes.isLoading} error={orders.isError || nodes.isError} onRetry={() => { void orders.refetch(); void nodes.refetch(); }} empty={!filtered.length}><PagedProxyNodeGrid nodes={filtered} orderById={orderById} /></State></section></main></CustomerShell>;
+}
+
+function DashboardBillingPage() {
+  const credit = useCreditBalance();
+  return <CustomerShell active="billing"><main className="mx-auto max-w-4xl px-5 py-9 lg:px-8 lg:py-12"><p className="mono text-[10px] uppercase tracking-[.2em] text-[#e4643d]">credit & billing</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em]">Billing</h1><p className="mt-2 text-sm leading-6 text-slate-500">Credit is the only checkout method. Server-side pricing and wallet validation protect every order.</p><State loading={credit.isLoading} error={credit.isError} onRetry={() => credit.refetch()}><section className="mt-7 rounded-3xl bg-[#142037] p-7 text-white"><p className="mono text-[10px] uppercase tracking-[.18em] text-[#69d5d0]">Available credit</p><p className="mt-3 text-4xl font-extrabold">{(credit.data?.balance || 0).toLocaleString()} <span className="text-lg text-slate-300">cr</span></p><p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">Orders for Datacenter and Residential SOCKS5 debit this same protected account balance only after server validation.</p></section></State></main></CustomerShell>;
 }
 
 function ProxyOrderForm({ product, isTrial }: { product: CatalogProduct; isTrial?: boolean }) {
   const { locale, t, usdToIdrRate, creditsPerUsd } = useLocalePreferences();
   const [nodeCount, setNodeCount] = useState(5);
   const [rentalDays, setRentalDays] = useState(1);
+  const [confirming, setConfirming] = useState(false);
   const payment = 'credit' as const;
   const residentialTrialBlocked = Boolean(isTrial && product.proxyType === 'residential');
   const quote = useOrderQuote(product.id, nodeCount, rentalDays, { query: { retry: false } });
@@ -1195,8 +1235,13 @@ function ProxyOrderForm({ product, isTrial }: { product: CatalogProduct; isTrial
   const submit = () => {
     if (residentialTrialBlocked) { window.alert(t('residentialTrialBlocked')); return; }
     if (!quote.data) return;
+    setConfirming(true);
+  };
+  const confirmOrder = () => {
+    if (!quote.data) return;
     createOrder.mutate({ data: { productId: product.id, nodeCount, rentalDays, paymentMethod: payment } }, {
       onSuccess: () => {
+        setConfirming(false);
         setNodeCount(isTrial ? 1 : 5);
         setRentalDays(1);
         void qc.invalidateQueries({ queryKey: getListClientOrdersQueryKey() });
@@ -1231,6 +1276,7 @@ function ProxyOrderForm({ product, isTrial }: { product: CatalogProduct; isTrial
       <td className="px-4 py-4"><Button className="min-h-9 whitespace-nowrap px-3 text-xs" disabled={isTrial === undefined || residentialTrialBlocked || createOrder.isPending || quote.isLoading || !quote.data} onClick={submit}>{createOrder.isPending ? t('creating') : t('orderNow')}</Button></td>
     </tr>
     {quote.isError && <tr className="border-b border-[#edf2f3]"><td colSpan={8} className="bg-red-50 px-4 py-2 text-xs text-red-700">{country}: {quote.error.message}</td></tr>}
+    {confirming && <Modal title="Confirm proxy order" onClose={() => setConfirming(false)}><div className="space-y-4"><div className={cx('rounded-2xl border px-4 py-3', product.proxyType === 'residential' ? 'border-purple-200 bg-purple-50 text-purple-800' : 'border-blue-200 bg-blue-50 text-blue-800')}><p className="text-xs font-bold uppercase tracking-wide">Service type</p><p className="mt-1 text-lg font-extrabold">{product.proxyType === 'residential' ? t('residentialSocks') : t('datacenterSocks')}</p></div><dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl bg-[#f8fbfb] p-4 text-sm"><div><dt className="text-slate-500">Country</dt><dd className="mt-1 font-extrabold">{country}</dd></div><div><dt className="text-slate-500">Nodes</dt><dd className="mt-1 font-extrabold">{nodeCount}</dd></div><div><dt className="text-slate-500">Duration</dt><dd className="mt-1 font-extrabold">{rentalDays} day{rentalDays === 1 ? '' : 's'}</dd></div><div><dt className="text-slate-500">Total</dt><dd className="mt-1 font-extrabold">{formatCredits(quote.data?.creditCost || 0)}</dd></div></dl><p className="text-xs leading-5 text-slate-500">Your account will be charged in Credit only after the server validates the product, price, and capacity.</p><div className="flex gap-3 pt-2"><Button variant="outline" className="flex-1" disabled={createOrder.isPending} onClick={() => setConfirming(false)}>Cancel</Button><Button className={cx('flex-1 !text-white', product.proxyType === 'residential' ? '!bg-purple-600 hover:!bg-purple-700' : '!bg-blue-600 hover:!bg-blue-700')} disabled={createOrder.isPending} onClick={confirmOrder}>{createOrder.isPending ? t('creating') : `Confirm ${product.proxyType === 'residential' ? 'Residential' : 'Datacenter'}`}</Button></div></div></Modal>}
   </>;
 }
 
@@ -1271,7 +1317,7 @@ function StaticResidentialNodeCard({ node }: { node: StaticResidentialOrder['nod
   return <div className="min-w-0 rounded-2xl border border-[#e1eaec] bg-[#f8fbfb] p-4"><div className="flex items-center justify-between"><p className="mono text-[10px] text-slate-400">{t('port').toUpperCase()} {node.port}</p><Badge tone={node.status === 'active' ? 'green' : 'neutral'}>{node.status}</Badge></div><code className="mt-4 block break-all text-[11px] leading-5 text-[#13716e]">{value || t('unavailable')}</code>{value && <button onClick={() => void navigator.clipboard?.writeText(value)} className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#e05c37]"><Copy size={13} /> {t('copy')}</button>}<p className="mt-3 text-[10px] text-slate-500">{t('upstreamRotates')} {time(node.nextRotationAt)}</p></div>;
 }
 
-function ClientPortalPage() {
+function ClientPortalPage({ serviceType }: { serviceType?: 'datacenter' | 'residential' }) {
   const { t } = useLocalePreferences();
   const overview = useGetClientOverview();
   const products = useListProducts();
@@ -1286,6 +1332,7 @@ function ClientPortalPage() {
   const [extendingOrder, setExtendingOrder] = useState<Order | null>(null);
   const [extensionDays, setExtensionDays] = useState(1);
   const [proxyTab, setProxyTab] = useState<'datacenter' | 'residential'>(() => window.localStorage.getItem('nodenesia.client.proxy-tab') === 'residential' ? 'residential' : 'datacenter');
+  const activeProxyTab = serviceType || proxyTab;
   const activeOrders = (orders.data || []).filter(order => order.status === 'active' && (!order.expiresAt || new Date(order.expiresAt) > new Date()));
   const activeNodeTotal = activeOrders.reduce((total, order) => total + order.nodeCount, 0);
   const failedOrderIds = new Set((orders.data || []).filter(order => order.status === 'provisioning_failed').map(order => String(order.id)));
@@ -1310,6 +1357,7 @@ function ClientPortalPage() {
   const residentialRecreateNodeTotal = activeResidentialNodeTotal + failedResidentialNodeTotal;
   const services = (products.data || []).filter(product => product.serviceType === 'proxy' && product.proxyType !== 'residential');
   const residentialServices = (products.data || []).filter(product => product.serviceType === 'proxy' && product.proxyType === 'residential');
+  const serviceOrders = (orders.data || []).filter(order => (order.proxyType || 'datacenter') === activeProxyTab);
 
   useEffect(() => {
     window.localStorage.setItem('nodenesia.client.proxy-tab', proxyTab);
@@ -1324,7 +1372,7 @@ function ClientPortalPage() {
     }
   }), [qc]);
 
-  const liveNodeCount = runtimeNodes.data?.filter(node => ['online', 'rotating', 'degraded'].includes(node.status)).length ?? activeOrders.length;
+  const liveNodeCount = runtimeNodes.data?.filter(node => ['online', 'rotating', 'degraded'].includes(node.status) && (orderById.get(String(node.orderId))?.proxyType || 'datacenter') === activeProxyTab).length ?? serviceOrders.length;
   const requestRecreateAll = (proxyType?: 'residential') => {
     const nodeTotal = proxyType === 'residential' ? residentialRecreateNodeTotal : recreateNodeTotal;
     if (!nodeTotal || recreateAll.isPending) return;
@@ -1373,17 +1421,15 @@ function ClientPortalPage() {
     });
   };
 
-  return <div className="min-h-[100dvh] bg-[#f4f8f8] text-[#142037]">
-    <ClientHeader active="proxy" />
-
-    <main className="mx-auto max-w-7xl px-5 py-9 pb-28 lg:px-8 lg:py-12">
-      <section className="relative overflow-hidden rounded-[2rem] bg-[#142037] px-6 py-8 text-white md:px-9"><div className="hero-grid absolute inset-0 opacity-20" /><div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><Link href="/client" className="mono text-[10px] uppercase tracking-[.18em] text-[#69d5d0] hover:text-white">{t('services')} / SOCKS5 Proxy</Link><h1 className="mt-3 text-3xl font-extrabold tracking-[-.05em] md:text-4xl">{t('proxyTitle')}</h1><p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">{t('proxyIntro')}</p></div><a href={proxyTab === 'residential' ? '#residential-catalog' : '#catalog'} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-xl bg-[#f46c43] px-4 text-sm font-bold text-white hover:bg-[#df5934]">{t('orderProxy')} <ArrowRight size={15} /></a></div></section>
+  return <CustomerShell active={activeProxyTab}>
+    <main className="mx-auto max-w-7xl px-5 py-9 lg:px-8 lg:py-12">
+      <section className="relative overflow-hidden rounded-[2rem] bg-[#142037] px-6 py-8 text-white md:px-9"><div className="hero-grid absolute inset-0 opacity-20" /><div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><Link href="/dashboard" className="mono text-[10px] uppercase tracking-[.18em] text-[#69d5d0] hover:text-white">Dashboard / SOCKS5</Link><span className={cx('mt-4 inline-flex rounded-full px-3 py-1 text-xs font-extrabold', activeProxyTab === 'residential' ? 'bg-purple-500/25 text-purple-100 ring-1 ring-purple-300/40' : 'bg-blue-500/25 text-blue-100 ring-1 ring-blue-300/40')}>{activeProxyTab === 'residential' ? t('residentialSocks') : t('datacenterSocks')}</span><h1 className="mt-3 text-3xl font-extrabold tracking-[-.05em] md:text-4xl">{activeProxyTab === 'residential' ? t('residentialSocks') : t('socksByCountry')}</h1><p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">{activeProxyTab === 'residential' ? t('residentialTabBody') : t('datacenterTabBody')}</p></div><a href={activeProxyTab === 'residential' ? '#residential-catalog' : '#catalog'} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-xl bg-[#f46c43] px-4 text-sm font-bold text-white hover:bg-[#df5934]">{activeProxyTab === 'residential' ? 'Order Residential' : 'Order Datacenter'} <ArrowRight size={15} /></a></div></section>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Metric label={t('activeNodes')} value={String(liveNodeCount)} detail={t('liveStatus')} icon={Network} tone="teal" /><Metric label={t('requestsToday')} value={(overview.data?.requestsToday || 0).toLocaleString()} detail={t('proxyTraffic')} icon={Activity} tone="orange" /><Metric label={t('totalRequests')} value={(overview.data?.totalRequests || 0).toLocaleString()} detail={t('allRecordedConnections')} icon={Gauge} tone="teal" /><Metric label={t('totalBandwidth')} value={bytes(overview.data?.totalBandwidthBytes || 0)} detail={t('uploadDownload')} icon={Activity} tone="orange" /><Metric label={t('successRate')} value={`${overview.data?.successRate ?? 100}%`} detail={t('last24Hours')} icon={Signal} tone="teal" /></section>
 
-      <section className="pt-8" aria-label={t('proxyTypeTabs')}><div className="grid overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white shadow-[0_10px_30px_rgba(20,32,55,.04)] sm:grid-cols-2" role="tablist" aria-label={t('proxyTypeTabs')}><button type="button" role="tab" aria-selected={proxyTab === 'datacenter'} onClick={() => setProxyTab('datacenter')} className={cx('border-b px-5 py-5 text-left transition sm:border-b-0 sm:border-r', proxyTab === 'datacenter' ? 'border-[#69d5d0] bg-[#eaf8f6]' : 'border-[#e5eef0] hover:bg-[#f8fbfb]')}><div className="flex items-center justify-between gap-3"><span className="font-extrabold text-[#142037]">{t('datacenterSocks')}</span><Badge tone="teal">{t('rotating')}</Badge></div><p className="mt-2 text-sm leading-5 text-slate-500">{t('datacenterTabBody')}</p></button><button type="button" role="tab" aria-selected={proxyTab === 'residential'} onClick={() => setProxyTab('residential')} className={cx('px-5 py-5 text-left transition', proxyTab === 'residential' ? 'bg-[#fff5ef]' : 'hover:bg-[#f8fbfb]')}><div className="flex items-center justify-between gap-3"><span className="font-extrabold text-[#142037]">{t('residentialSocks')}</span><Badge tone="orange">{t('unlimited')}</Badge></div><p className="mt-2 text-sm leading-5 text-slate-500">{t('residentialTabBody')}</p></button></div></section>
+      {!serviceType && <section className="pt-8" aria-label={t('proxyTypeTabs')}><div className="grid overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white shadow-[0_10px_30px_rgba(20,32,55,.04)] sm:grid-cols-2" role="tablist" aria-label={t('proxyTypeTabs')}><button type="button" role="tab" aria-selected={proxyTab === 'datacenter'} onClick={() => setProxyTab('datacenter')} className={cx('border-b px-5 py-5 text-left transition sm:border-b-0 sm:border-r', proxyTab === 'datacenter' ? 'border-[#69d5d0] bg-[#eaf8f6]' : 'border-[#e5eef0] hover:bg-[#f8fbfb]')}><div className="flex items-center justify-between gap-3"><span className="font-extrabold text-[#142037]">{t('datacenterSocks')}</span><Badge tone="teal">{t('rotating')}</Badge></div><p className="mt-2 text-sm leading-5 text-slate-500">{t('datacenterTabBody')}</p></button><button type="button" role="tab" aria-selected={proxyTab === 'residential'} onClick={() => setProxyTab('residential')} className={cx('px-5 py-5 text-left transition', proxyTab === 'residential' ? 'bg-[#fff5ef]' : 'hover:bg-[#f8fbfb]')}><div className="flex items-center justify-between gap-3"><span className="font-extrabold text-[#142037]">{t('residentialSocks')}</span><Badge tone="orange">{t('unlimited')}</Badge></div><p className="mt-2 text-sm leading-5 text-slate-500">{t('residentialTabBody')}</p></button></div></section>}
 
-      {proxyTab === 'datacenter' && <>
+      {activeProxyTab === 'datacenter' && <>
       <section id="catalog" className="scroll-mt-24 pt-12"><SectionTitle eyebrow={t('catalog')} title={t('socksByCountry')} body={t('catalogBody')} /><State loading={products.isLoading || identity.isLoading} error={products.isError || identity.isError} onRetry={() => { void products.refetch(); void identity.refetch(); }} empty={!services.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">{t('country')}</th><th className="px-4 py-3">{t('proxyService')}</th><th className="px-4 py-3">{t('priceNode')}</th><th className="px-3 py-3">{t('nodes')}</th><th className="px-3 py-3">{t('days')}</th><th className="px-3 py-3">{t('payment')}</th><th className="px-4 py-3">{t('total')}</th><th className="px-4 py-3">{t('action')}</th></tr></thead><tbody>{services.map(service => <ProxyOrderForm key={service.id} product={service} isTrial={identity.data?.isTrial} />)}</tbody></table></div></State></section>
 
       <section id="my-services" className="scroll-mt-24 pt-12"><SectionTitle eyebrow={t('portfolio')} title={t('myNodes')} body={t('myNodesBody')} action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={!datacenterNodes.length || exportConnections.isPending} onClick={downloadConnections}><Download size={15} />{exportConnections.isPending ? t('preparing') : t('download')}</Button><Button variant="danger" disabled={!recreateNodeTotal || recreateAll.isPending} onClick={() => requestRecreateAll()} data-testid="button-force-recreate-all-nodes"><RefreshCw size={15} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${recreateNodeTotal})`}</Button></div>} />
@@ -1392,7 +1438,7 @@ function ClientPortalPage() {
       </section>
       </>}
 
-      {proxyTab === 'residential' && <>
+      {activeProxyTab === 'residential' && <>
       <section id="residential-catalog" className="scroll-mt-24 pt-12"><SectionTitle eyebrow={t('residential')} title={t('residentialSocks')} body={t('residentialCatalogBody')} /><State loading={products.isLoading || identity.isLoading} error={products.isError || identity.isError} onRetry={() => { void products.refetch(); void identity.refetch(); }} empty={!residentialServices.length}><div className="overflow-x-auto rounded-3xl border border-[#dbe7e9] bg-white"><table className="min-w-[980px] w-full text-left"><thead className="bg-[#f8fbfb] text-[9px] font-bold uppercase tracking-[.13em] text-slate-400"><tr><th className="px-4 py-3">{t('country')}</th><th className="px-4 py-3">{t('proxyService')}</th><th className="px-4 py-3">{t('priceNode')}</th><th className="px-3 py-3">{t('nodes')}</th><th className="px-3 py-3">{t('days')}</th><th className="px-3 py-3">{t('payment')}</th><th className="px-4 py-3">{t('total')}</th><th className="px-4 py-3">{t('action')}</th></tr></thead><tbody>{residentialServices.map(service => <ProxyOrderForm key={service.id} product={service} isTrial={identity.data?.isTrial} />)}</tbody></table></div></State></section>
 
       <section id="residential-nodes" className="scroll-mt-24 pt-8"><SectionTitle eyebrow={t('residential')} title={t('residentialNodes')} body={t('myNodesBody')} action={<div className="flex flex-wrap gap-2"><Button variant="outline" className="min-h-9 px-3 text-xs" disabled={!residentialNodes.length || exportResidentialConnections.isPending} onClick={downloadResidentialConnections} data-testid="button-download-residential-nodes"><Download size={14} />{exportResidentialConnections.isPending ? t('preparing') : t('download')}</Button><Button variant="danger" className="min-h-9 px-3 text-xs" disabled={!residentialRecreateNodeTotal || recreateAll.isPending} onClick={() => requestRecreateAll('residential')} data-testid="button-force-recreate-residential-nodes"><RefreshCw size={14} className={recreateAll.isPending ? 'animate-spin' : ''} />{recreateAll.isPending ? t('recreating') : `${t('forceRecreate')} (${residentialRecreateNodeTotal})`}</Button></div>} />
@@ -1401,10 +1447,10 @@ function ClientPortalPage() {
       </section>
       </>}
 
-      <section id="orders" className="scroll-mt-24 pt-16 pb-12"><SectionTitle eyebrow={t('accountHistory')} title={t('recentOrders')} body={t('ordersBody')} /><State loading={orders.isLoading} error={orders.isError} onRetry={() => orders.refetch()} empty={!orders.data?.length}><OrdersTable orders={(orders.data || []).slice(0, 8)} /></State></section>
+      <section id="orders" className="scroll-mt-24 pt-16 pb-12"><SectionTitle eyebrow={t('accountHistory')} title={`${activeProxyTab === 'residential' ? t('residentialSocks') : t('datacenterSocks')} orders`} body={t('ordersBody')} /><State loading={orders.isLoading} error={orders.isError} onRetry={() => orders.refetch()} empty={!serviceOrders.length}><OrdersTable orders={serviceOrders.slice(0, 8)} /></State></section>
     </main>
     {extendingOrder && <Modal title={`Extend order #${extendingOrder.id}`} onClose={() => setExtendingOrder(null)}><p className="text-sm leading-6 text-slate-500">Extend all {extendingOrder.nodeCount} current node{extendingOrder.nodeCount === 1 ? '' : 's'} in this order. Payment is charged from your Credit balance.</p><label className="mt-5 block text-sm font-bold">Additional days<select className="mt-2 block w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm" value={extensionDays} onChange={event => setExtensionDays(Number(event.target.value))}>{[1, 3, 7, 15, 30].map(days => <option key={days} value={days}>{days} day{days === 1 ? '' : 's'}</option>)}</select></label><div className="mt-6 flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setExtendingOrder(null)}>Cancel</Button><Button className="flex-1" disabled={extendOrder.isPending} onClick={submitExtension}>{extendOrder.isPending ? 'Extending…' : 'Pay & extend'}</Button></div></Modal>}
-  </div>;
+  </CustomerShell>;
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
@@ -1572,7 +1618,7 @@ function HomeRedirect() {
   return user ? <PostAuthRedirect /> : <Landing />;
 }
 
-type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-static-residential' | 'admin-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-credits' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-provisioning-logs' | 'admin-proxy-settings' | 'admin-static-residential' | 'admin-settings';
+type ProtectedPage = 'client-dashboard' | 'client-proxy' | 'client-residential' | 'client-static-residential' | 'client-orders' | 'client-nodes' | 'client-billing' | 'admin-security' | 'admin-overview' | 'admin-catalog' | 'admin-info-users' | 'admin-credits' | 'admin-proxy-api-keys' | 'admin-proxy-providers' | 'admin-proxy-orders' | 'admin-proxy-provisioning-logs' | 'admin-proxy-settings' | 'admin-static-residential' | 'admin-settings';
 
 function Protected({ page }: { page: ProtectedPage }) {
   const { user, loading } = useAuth();
@@ -1585,8 +1631,12 @@ function Protected({ page }: { page: ProtectedPage }) {
   if (admin && page !== 'admin-security' && identity.data?.aal !== 'aal2') return <Redirect to="/admin/security" />;
   switch (page) {
     case 'client-dashboard': return <ClientDashboardPage />;
-    case 'client-proxy': return <ClientPortalPage />;
+    case 'client-proxy': return <ClientPortalPage serviceType="datacenter" />;
+    case 'client-residential': return <ClientPortalPage serviceType="residential" />;
     case 'client-static-residential': return <StaticResidentialPage />;
+    case 'client-orders': return <DashboardOrdersPage />;
+    case 'client-nodes': return <DashboardNodesPage />;
+    case 'client-billing': return <DashboardBillingPage />;
     case 'admin-security': return <SecurityPage />;
     case 'admin-overview': return <AdminOverviewPage />;
     case 'admin-catalog': return <AdminCatalogPage />;
@@ -1609,7 +1659,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function RouterViews() {
-  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={() => <AuthPage mode="sign-in" />} /><Route path="/sign-up/*?" component={() => <AuthPage mode="sign-up" />} /><Route path="/verify-telegram" component={TelegramVerificationPage} /><Route path="/client/nodes" component={() => <Redirect to="/client/proxy#my-services" />} /><Route path="/client/orders" component={() => <Redirect to="/client/proxy#orders" />} /><Route path="/client/proxy" component={() => <Protected page="client-proxy" />} /><Route path="/client/static-residential" component={() => <Protected page="client-static-residential" />} /><Route path="/client" component={() => <Protected page="client-dashboard" />} /><Route path="/admin/security" component={() => <Protected page="admin-security" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/provisioning-logs" component={() => <Protected page="admin-proxy-provisioning-logs" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/static-residential" component={() => <Protected page="admin-static-residential" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
+  return <RoutedErrorBoundary><Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={() => <AuthPage mode="sign-in" />} /><Route path="/sign-up/*?" component={() => <AuthPage mode="sign-up" />} /><Route path="/verify-telegram" component={TelegramVerificationPage} /><Route path="/dashboard/datacenter" component={() => <Protected page="client-proxy" />} /><Route path="/dashboard/residential" component={() => <Protected page="client-residential" />} /><Route path="/dashboard/orders" component={() => <Protected page="client-orders" />} /><Route path="/dashboard/nodes" component={() => <Protected page="client-nodes" />} /><Route path="/dashboard/billing" component={() => <Protected page="client-billing" />} /><Route path="/dashboard" component={() => <Protected page="client-dashboard" />} /><Route path="/client/nodes" component={() => <Redirect to="/dashboard/nodes" />} /><Route path="/client/orders" component={() => <Redirect to="/dashboard/orders" />} /><Route path="/client/proxy" component={() => <Redirect to="/dashboard/datacenter" />} /><Route path="/client/static-residential" component={() => <Protected page="client-static-residential" />} /><Route path="/client" component={() => <Redirect to="/dashboard" />} /><Route path="/admin/security" component={() => <Protected page="admin-security" />} /><Route path="/admin/users" component={() => <Redirect to="/admin/info/users" />} /><Route path="/admin/credits" component={() => <Protected page="admin-credits" />} /><Route path="/admin/keys" component={() => <Redirect to="/admin/proxy/api-keys" />} /><Route path="/admin/orders" component={() => <Redirect to="/admin/proxy/orders" />} /><Route path="/admin/info/users" component={() => <Protected page="admin-info-users" />} /><Route path="/admin/proxy/api-keys" component={() => <Protected page="admin-proxy-api-keys" />} /><Route path="/admin/proxy/providers" component={() => <Protected page="admin-proxy-providers" />} /><Route path="/admin/proxy/orders" component={() => <Protected page="admin-proxy-orders" />} /><Route path="/admin/proxy/provisioning-logs" component={() => <Protected page="admin-proxy-provisioning-logs" />} /><Route path="/admin/proxy/settings" component={() => <Protected page="admin-proxy-settings" />} /><Route path="/admin/static-residential" component={() => <Protected page="admin-static-residential" />} /><Route path="/admin/settings" component={() => <Protected page="admin-settings" />} /><Route path="/admin/catalog" component={() => <Protected page="admin-catalog" />} /><Route path="/admin" component={() => <Protected page="admin-overview" />} /><Route component={NotFound} /></Switch></RoutedErrorBoundary>;
 }
 
 function App() {
