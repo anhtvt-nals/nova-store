@@ -12,12 +12,13 @@ export class CatalogService {
   }
 
   async products() {
-    const result = await this.db.client.from('products').select('id,code,name,service_type,country_code,description,base_price,currency,image_url,is_featured').eq('is_active', true).order('country_code').order('name');
+    const result = await this.db.client.from('products').select('id,code,name,service_type,proxy_type,country_code,description,base_price,currency,image_url,is_featured').eq('is_active', true).order('country_code').order('name');
     return this.db.unwrap(result, 'Unable to load products').map(row => ({
       id: row.id,
       code: row.code,
       name: row.name,
       serviceType: row.service_type,
+      proxyType: row.proxy_type || 'datacenter',
       countryCode: row.country_code,
       description: row.description,
       unitPrice: Number(row.base_price),

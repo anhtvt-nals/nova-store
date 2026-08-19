@@ -64,6 +64,7 @@ export interface CatalogProduct {
   code: string;
   name: string;
   serviceType: string;
+  proxyType: 'datacenter' | 'residential';
   countryCode: string | null;
   description: string;
   unitPrice: number;
@@ -88,6 +89,7 @@ export interface Order {
   productName: string;
   productCode: string;
   serviceType: string;
+  proxyType: 'datacenter' | 'residential';
   countryCode?: string;
 }
 
@@ -221,6 +223,7 @@ export interface AdminProduct {
   name: string;
   description: string;
   serviceType: string;
+  proxyType: 'datacenter' | 'residential';
   countryCode: string | null;
   productKind: ProductKind;
   fulfillmentType: FulfillmentType;
@@ -241,6 +244,7 @@ export type ProductInput = {
   productKind: ProductKind;
   fulfillmentType: FulfillmentType;
   serviceType: string;
+  proxyType?: 'datacenter' | 'residential';
   countryCode?: string;
   basePrice: number;
   currency: string;
@@ -287,6 +291,7 @@ export interface ProxyPriceSetting {
   id: number;
   code: string;
   name: string;
+  proxyType: 'datacenter' | 'residential';
   countryCode: string | null;
   basePrice: number;
   currency: string;

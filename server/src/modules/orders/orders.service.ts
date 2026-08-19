@@ -4,7 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import { ProxyCredentialService } from '../proxy/proxy-credential.service';
 import type { CreateOrderDto, ExtendOrderDto, QuoteOrderDto } from './orders.dto';
 
-const orderSelect = 'id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,products(code,name,service_type),resources(name)';
+const orderSelect = 'id,order_group_id,amount,unit_price,node_count,rental_days,status,payment_method,created_at,activated_at,expires_at,plan_name_snapshot,resource_name_snapshot,products(code,name,service_type,proxy_type),resources(name)';
 
 @Injectable()
 export class OrdersService {
@@ -115,12 +115,12 @@ export class OrdersService {
   }
 
   private async getProxyPricing(productId: number) {
-    const result = await this.db.client.from('products').select('id,base_price,currency,is_active,service_type').eq('id', productId).maybeSingle();
+    const result = await this.db.client.from('products').select('id,base_price,currency,is_active,service_type,proxy_type').eq('id', productId).maybeSingle();
     const product = this.db.unwrap(result, 'Unable to validate product');
     if (!product || !product.is_active) throw new NotFoundException('Product not found');
     if (product.service_type !== 'proxy') throw new BadRequestException('This product does not support node/day ordering');
     if (Number(product.base_price) <= 0) throw new BadRequestException('Proxy daily price has not been configured by admin');
-    return { productId: product.id, unitPrice: Number(product.base_price), currency: product.currency };
+    return { productId: product.id, unitPrice: Number(product.base_price), currency: product.currency, proxyType: product.proxy_type || 'datacenter' };
   }
 
   async connection(profileId: number, orderId: number, nodeId?: number) {

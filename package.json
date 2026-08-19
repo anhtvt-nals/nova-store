@@ -21,6 +21,7 @@
     "test:blaxel-gost": "node scripts/test-blaxel-gost.mjs",
     "test:beam-gost": "node scripts/test-beam-gost.mjs",
     "test:nodeops-gost": "node scripts/test-nodeops-gost.mjs",
+    "test:namespace-gost": "node scripts/test-namespace-gost.mjs",
     "test:github-gost": "node scripts/test-github-gost.mjs",
     "github:create-gost-template": "node scripts/create-github-gost-template-repo.mjs",
     "github:create-gost-sandbox": "node scripts/create-github-gost-sandbox-repo.mjs",
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "@beamcloud/beam-js": "^1.0.0-rc.33",
+    "@namespacelabs/cloud": "^0.1.32",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",

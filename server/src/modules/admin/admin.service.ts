@@ -316,19 +316,19 @@ export class AdminService {
   }
 
   async products() {
-    const result = await this.db.client.from('products').select('id,category_id,code,sku,name,description,service_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').order('created_at', { ascending: false });
+    const result = await this.db.client.from('products').select('id,category_id,code,sku,name,description,service_type,proxy_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').order('created_at', { ascending: false });
     return this.db.unwrap(result, 'Unable to load products').map((row: any) => this.mapProduct(row));
   }
 
   async createProduct(dto: CreateProductDto) {
-    const result = await this.db.client.from('products').insert(this.productValues(dto)).select('id,category_id,code,sku,name,description,service_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').single();
+    const result = await this.db.client.from('products').insert(this.productValues(dto)).select('id,category_id,code,sku,name,description,service_type,proxy_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').single();
     if (result.error?.code === '23505') throw new ConflictException('Product code or SKU already exists');
     if (result.error?.code === '23503') throw new ConflictException('Category does not exist');
     return this.mapProduct(this.db.unwrap(result, 'Unable to create product'));
   }
 
   async updateProduct(id: number, dto: UpdateProductDto) {
-    const result = await this.db.client.from('products').update(this.productValues(dto)).eq('id', id).select('id,category_id,code,sku,name,description,service_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').maybeSingle();
+    const result = await this.db.client.from('products').update(this.productValues(dto)).eq('id', id).select('id,category_id,code,sku,name,description,service_type,proxy_type,country_code,product_kind,fulfillment_type,base_price,currency,stock_quantity,image_url,is_active,is_featured,categories(name)').maybeSingle();
     if (result.error?.code === '23505') throw new ConflictException('Product code or SKU already exists');
     if (result.error?.code === '23503') throw new ConflictException('Category does not exist');
     const row = this.db.unwrap(result, 'Unable to update product');
@@ -652,15 +652,15 @@ export class AdminService {
   }
 
   async proxySettings() {
-    const result = await this.db.client.from('products').select('id,code,name,country_code,base_price,currency,is_active').eq('service_type', 'proxy').order('name');
-    return this.db.unwrap(result, 'Unable to load proxy settings').map(row => ({ id: row.id, code: row.code, name: row.name, countryCode: row.country_code, basePrice: Number(row.base_price), currency: row.currency, isActive: row.is_active }));
+    const result = await this.db.client.from('products').select('id,code,name,proxy_type,country_code,base_price,currency,is_active').eq('service_type', 'proxy').order('proxy_type').order('name');
+    return this.db.unwrap(result, 'Unable to load proxy settings').map(row => ({ id: row.id, code: row.code, name: row.name, proxyType: row.proxy_type || 'datacenter', countryCode: row.country_code, basePrice: Number(row.base_price), currency: row.currency, isActive: row.is_active }));
   }
 
   async updateProxyPrice(id: number, dto: UpdateProxyPriceDto) {
-    const result = await this.db.client.from('products').update({ base_price: dto.basePrice, currency: dto.currency }).eq('id', id).eq('service_type', 'proxy').select('id,code,name,country_code,base_price,currency,is_active').maybeSingle();
+    const result = await this.db.client.from('products').update({ base_price: dto.basePrice, currency: dto.currency }).eq('id', id).eq('service_type', 'proxy').select('id,code,name,proxy_type,country_code,base_price,currency,is_active').maybeSingle();
     const row = this.db.unwrap(result, 'Unable to update proxy price');
     if (!row) throw new NotFoundException('Proxy product not found');
-    return { id: row.id, code: row.code, name: row.name, countryCode: row.country_code, basePrice: Number(row.base_price), currency: row.currency, isActive: row.is_active };
+    return { id: row.id, code: row.code, name: row.name, proxyType: row.proxy_type || 'datacenter', countryCode: row.country_code, basePrice: Number(row.base_price), currency: row.currency, isActive: row.is_active };
   }
 
   async generalSettings() {
@@ -712,6 +712,7 @@ export class AdminService {
     if (dto.productKind !== undefined) values.product_kind = dto.productKind;
     if (dto.fulfillmentType !== undefined) values.fulfillment_type = dto.fulfillmentType;
     if (dto.serviceType !== undefined) values.service_type = dto.serviceType;
+    if (dto.proxyType !== undefined) values.proxy_type = dto.proxyType;
     if (dto.countryCode !== undefined) values.country_code = dto.countryCode || null;
     if (dto.basePrice !== undefined) values.base_price = dto.basePrice;
     if (dto.currency !== undefined) values.currency = dto.currency.toUpperCase();
@@ -733,6 +734,7 @@ export class AdminService {
       name: row.name,
       description: row.description,
       serviceType: row.service_type,
+      proxyType: row.proxy_type || 'datacenter',
       countryCode: row.country_code,
       productKind: row.product_kind,
       fulfillmentType: row.fulfillment_type,

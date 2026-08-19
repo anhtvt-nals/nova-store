@@ -55,6 +55,7 @@ export class CreateProductDto {
   @IsIn(['account', 'digital', 'service', 'other']) productKind: 'account' | 'digital' | 'service' | 'other';
   @IsIn(['automatic', 'manual', 'service']) fulfillmentType: 'automatic' | 'manual' | 'service';
   @IsString() @Length(2, 50) serviceType: string;
+  @IsOptional() @IsIn(['datacenter', 'residential']) proxyType?: 'datacenter' | 'residential';
   @IsOptional() @IsString() @Matches(/^[A-Z]{2}$/) countryCode?: string;
   @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice: number;
   @IsString() @Matches(/^[A-Z]{3}$/) currency: string;
@@ -73,6 +74,7 @@ export class UpdateProductDto {
   @IsOptional() @IsIn(['account', 'digital', 'service', 'other']) productKind?: 'account' | 'digital' | 'service' | 'other';
   @IsOptional() @IsIn(['automatic', 'manual', 'service']) fulfillmentType?: 'automatic' | 'manual' | 'service';
   @IsOptional() @IsString() @Length(2, 50) serviceType?: string;
+  @IsOptional() @IsIn(['datacenter', 'residential']) proxyType?: 'datacenter' | 'residential';
   @IsOptional() @IsString() @Matches(/^[A-Z]{2}$/) countryCode?: string;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) basePrice?: number;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;

@@ -54,6 +54,52 @@ Press Ctrl+C to destroy the sandbox and release the test port. On errors it also
 destroys the sandbox; set `NODEOPS_TEST_KEEP_ON_FAILURE=true` only for manual
 diagnostics.
 
+### Namespace Labs instance + GOST test
+
+This one-off test uses the official `@namespacelabs/cloud` TypeScript SDK. It
+does not touch the database: it preflights the supplied Namespace bearer token,
+creates one Linux instance with a one-hour deadline from the official public
+`gogost/gost:3.2.6` image, starts GOST without runtime package installation or
+binary download, verifies the reverse SOCKS5 tunnel from the master, prints
+the SOCKS5 connection string and egress IP, then remains live until Ctrl+C.
+
+The script calls `WaitInstanceSync` as a bounded, non-blocking diagnostic, but
+starts SOCKS5 reachability checks immediately after `CreateInstance`. The
+actual success criterion is a SOCKS5 authentication handshake, not a delayed
+control-plane ready signal. Configure `NAMESPACE_*` and the dedicated WSS
+tunnel values in `.env`, then pass the short-lived token only to the command:
+
+```bash
+NAMESPACE_TEST_TOKEN='your-namespace-tenant-token' npm run test:namespace-gost
+```
+
+For compatibility with the official Namespace example, `NSC_TOKEN` is also
+accepted; inside a Namespace workload, `NSC_TOKEN_FILE` is accepted when it
+contains a JSON `bearer_token`. No Namespace CLI is used by this script.
+
+`NAMESPACE_REGION` accepts one region or a `|`-separated candidate list, such
+as `us|eu`; one region is selected randomly for each new sandbox/test run. By
+default the test sends the matching hard placement constraint
+`NAMESPACE_PLACEMENT=continent:<selected-region>` (for example,
+`continent:eu`); this prevents Namespace from silently placing an EU request
+in US capacity. Supply `NAMESPACE_PLACEMENT` as an ordered `|`-separated list
+such as `site:zrh|continent:eu` only when Namespace has confirmed those site
+names for the workspace.
+
+The Namespace token must grant `instance:create`, `instance:get`,
+`instance:list`, `instance:wait`, and `instance:destroy`. Add
+`instance/o11y/logs:get` to include startup diagnostics.
+
+Ctrl+C/SIGTERM calls Namespace `destroyInstance`, retries transient API errors,
+and polls until the instance is removed (up to
+`NAMESPACE_CLEANUP_TIMEOUT_MS`, default 90 seconds). If that cleanup cannot
+run, the instance still terminates at `NAMESPACE_INSTANCE_DURATION_SECONDS`
+(default one hour). Development tokens often expire within 24 hours; this test
+performs a read-only SDK preflight before it creates billable compute, so an
+expired token fails without creating an instance. Set
+`NAMESPACE_TEST_KEEP_ON_FAILURE=true` only to retain an instance for diagnostics
+until its deadline.
+
 ## Proxy usage telemetry
 
 Apply `202608160041_proxy_usage_observer.sql`, then configure a public HTTPS callback for sandbox observers:

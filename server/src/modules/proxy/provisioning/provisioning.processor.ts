@@ -211,7 +211,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
 
       // Runloop is a separate provider: it always uses an X_SMALL Devbox with
       // a one-hour TTL. E2B retains its existing configuration unchanged.
-      const ttlMinutes = ['runloop', 'github'].includes(providerDriver)
+      const ttlMinutes = ['runloop', 'github', 'namespace'].includes(providerDriver)
         ? 60
         : Math.max(15, Number(this.config.get('E2B_SANDBOX_TIMEOUT_MINUTES') || 60));
       const renewBeforeMinutes = Math.max(1, Math.min(ttlMinutes - 1, Number(this.config.get('E2B_RENEW_BEFORE_MINUTES') || 10)));
@@ -219,7 +219,8 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
       const nextRotationAt = new Date(sandboxExpiresAt.getTime() - renewBeforeMinutes * 60000);
       const isBlaxel = providerDriver === 'blaxel';
       const isGithub = providerDriver === 'github';
-      const wssTunnelPrefix = isGithub ? 'GITHUB_GOST' : isBlaxel ? 'BLAXEL_GOST' : null;
+      const isNamespace = providerDriver === 'namespace';
+      const wssTunnelPrefix = isNamespace ? 'NAMESPACE_GOST' : isGithub ? 'GITHUB_GOST' : isBlaxel ? 'BLAXEL_GOST' : null;
       const tunnelUsername = this.required(wssTunnelPrefix ? `${wssTunnelPrefix}_TUNNEL_USERNAME` : 'GOST_TUNNEL_USERNAME');
       const tunnelPassword = this.required(wssTunnelPrefix ? `${wssTunnelPrefix}_TUNNEL_PASSWORD` : 'GOST_TUNNEL_PASSWORD');
 
@@ -228,7 +229,7 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         orderId: context.orderId,
         providerApiKeyId: capacity.apiKeyId,
         providerApiKey,
-        template: String(providerConfig.metadata.template || (providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : providerDriver === 'blaxel' ? this.config.get('BLAXEL_IMAGE') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
+        template: String(providerConfig.metadata.template || (providerDriver === 'namespace' ? this.config.get('NAMESPACE_IMAGE') : providerDriver === 'runloop' ? this.config.get('RUNLOOP_BLUEPRINT') : providerDriver === 'blaxel' ? this.config.get('BLAXEL_IMAGE') : this.config.get('E2B_TEMPLATE')) || '') || undefined,
         timeoutMs: ttlMinutes * 60000,
         expiresAt: sandboxExpiresAt,
         metadata: { service: 'socks5' },
