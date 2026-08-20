@@ -232,6 +232,11 @@ match the server-created invoice. Credit is calculated from `net_amount`, not
 the amount the customer paid. The database locks the invoice and records a
 unique ledger reference, so webhook retries cannot add Credit twice.
 
+Before enabling customer top-ups, activate the required payment method in the
+Sumopod live merchant dashboard. The current checkout uses the live QRIS code
+`qris`; a `400 ... payment_method_type_code is not active` response means that
+code is not activated for the merchant, not that the customer payment failed.
+
 ## Adding another service
 
 Add a `products` row, its `plans`, and service capacity/endpoints in `resources`. Product-specific behavior belongs in JSON `config`/`capabilities` or a new provisioning adapter; the shared order, payment approval, user, API-key, and usage model stays unchanged.

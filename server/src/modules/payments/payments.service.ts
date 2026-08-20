@@ -206,7 +206,10 @@ export class PaymentsService {
       // separately branded origin. Keep this an exact allowlist rather than
       // allowing arbitrary `*.pymnt.global` redirect hosts.
       ? new Set(['pay-sandbox.sumopod.com', 'pay.sumopod.com', 'sumo.sandbox.pymnt.global'])
-      : new Set(['pay.sumopod.com']);
+      // Live Sumopod currently serves the hosted checkout from this exact
+      // origin. Do not broaden this to a pymnt.app wildcard: the checkout URL
+      // can contain a live, one-time payment token.
+      : new Set(['pay.sumopod.com', 'checkout.pymnt.app']);
     if (url.protocol !== 'https:' || !allowedHosts.has(url.hostname) || url.username || url.password) {
       // Deliberately log only origin metadata; the path/query can contain a
       // live payment token and must never reach application logs.

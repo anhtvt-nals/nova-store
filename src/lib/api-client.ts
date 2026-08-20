@@ -534,7 +534,7 @@ export function useOrderQuote(productId: number, nodeCount: number, rentalDays: 
 export function useCreditBalance(config?: QueryConfig<CreditBalance>) {
   return query(getCreditBalanceQueryKey(), '/orders/credits/balance', getAccessToken, config);
 }
-export function useCreateSumopodCheckout(options?: MutationConfig<SumopodCheckout, { data: { amountIdr: number; paymentMethod: 'QRIS' | 'QRIS_INSTANT' } }>) {
+export function useCreateSumopodCheckout(options?: MutationConfig<SumopodCheckout, { data: { amountIdr: number; paymentMethod: 'qris' } }>) {
   return useMutation({ mutationFn: ({ data }) => request<SumopodCheckout>('/payments/sumopod/checkout', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useSumopodInvoice(id: string | null, config?: QueryConfig<SumopodInvoice>) {
