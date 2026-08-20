@@ -59,13 +59,16 @@ export class PaymentsService {
         throw new Error(`Sumopod HTTP ${response.status}: ${providerMessage}`);
       }
       const url = this.parsePaymentUrl(payload.payment_link_url, baseUrl);
-      const settlement = this.resolveSettlement(dto.amountIdr, payload.fee, payload.net_amount, `invoice ${invoice.id}`);
+      const settlement = this.resolveSettlement(dto.amountIdr, payload.fee, `invoice ${invoice.id}`, true);
       if (!settlement) {
         this.logger.warn(`Sumopod invalid settlement for invoice ${invoice.id}: gross=${dto.amountIdr}, fee=${String(payload.fee)}, net=${String(payload.net_amount)}`);
         throw new Error('Sumopod returned invalid fee settlement');
       }
       const { feeIdr, netAmountIdr } = settlement;
-      const creditAmount = this.creditForIdr(netAmountIdr, values);
+      // SumoPod's live QRIS fee is a customer surcharge: the customer pays it
+      // in addition to `amount`, while Nodenesia receives the full invoice
+      // amount. Credit must therefore equal the server-created gross amount.
+      const creditAmount = this.creditForIdr(dto.amountIdr, values);
       if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new Error('Sumopod net settlement is too small');
       const update = await this.db.client.from('payment_invoices').update({
         provider_payment_id: payload.payment_id, provider_fee_idr: feeIdr, net_amount_idr: netAmountIdr,
@@ -106,7 +109,7 @@ export class PaymentsService {
     if (event.event_type !== 'payment.completed') return { received: true };
     const data = event.data;
     const amount = Number(data?.amount);
-    const settlement = this.resolveSettlement(amount, data?.fee, data?.net_amount, `webhook ${data?.payment_id || 'unknown'}`);
+    const settlement = this.resolveSettlement(amount, data?.fee, `webhook ${data?.payment_id || 'unknown'}`, false);
     if (!data?.payment_id || !data.order_id || !Number.isInteger(amount) || amount <= 0 || data.status !== 'completed') {
       throw new BadRequestException('Invalid Sumopod completed payment payload');
     }
@@ -192,22 +195,13 @@ export class PaymentsService {
     return value === undefined || value === null ? null : this.parseProviderMoney(value, field);
   }
 
-  private resolveSettlement(grossAmountIdr: number, rawFee: unknown, rawNetAmount: unknown, source: string) {
+  private resolveSettlement(grossAmountIdr: number, rawFee: unknown, source: string, requireFee: boolean) {
     const feeIdr = this.optionalProviderMoney(rawFee, `${source} fee`);
-    const reportedNetAmountIdr = this.optionalProviderMoney(rawNetAmount, `${source} net amount`);
-    if (feeIdr !== null) {
-      if (feeIdr < 0 || feeIdr >= grossAmountIdr) return null;
-      const netAmountIdr = grossAmountIdr - feeIdr;
-      // Live Sumopod currently returns `net_amount` as the gross amount for
-      // QRIS. The signed fee is the authoritative deduction, so derive the
-      // wallet value from gross - fee and merely record this inconsistency.
-      if (reportedNetAmountIdr !== null && reportedNetAmountIdr !== netAmountIdr) {
-        this.logger.warn(`Sumopod ${source} net amount differs from settled value; using signed fee deduction`);
-      }
-      return { feeIdr, netAmountIdr };
-    }
-    if (reportedNetAmountIdr === null || reportedNetAmountIdr <= 0 || reportedNetAmountIdr > grossAmountIdr) return null;
-    return { feeIdr: grossAmountIdr - reportedNetAmountIdr, netAmountIdr: reportedNetAmountIdr };
+    if (feeIdr === null) return requireFee ? null : { feeIdr: null, netAmountIdr: grossAmountIdr };
+    if (feeIdr < 0) return null;
+    // `net_amount` from the live QRIS response equals the invoice amount. The
+    // fee is paid in addition to that amount, so it must never reduce Credit.
+    return { feeIdr, netAmountIdr: grossAmountIdr };
   }
 
   private optionalHttpsCallback(key: string) {

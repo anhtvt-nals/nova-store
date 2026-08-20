@@ -228,8 +228,9 @@ The API refuses a production mode/endpoint mismatch. It creates the invoice
 before calling SumoPod and exposes only the hosted payment URL to the browser.
 A completed payment is accepted only when its signed event, merchant order ID,
 payment ID, gross amount, fee/net settlement (when supplied), and currency
-match the server-created invoice. Credit is calculated from `net_amount`, not
-the amount the customer paid. The database locks the invoice and records a
+match the server-created invoice. For the live QRIS surcharge model, Credit is
+calculated from the server-created invoice amount; the gateway fee is paid in
+addition by the customer and does not reduce Credit. The database locks the invoice and records a
 unique ledger reference, so webhook retries cannot add Credit twice.
 
 Before enabling customer top-ups, activate the required payment method in the
