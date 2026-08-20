@@ -528,18 +528,17 @@ export class AdminService {
       throw new BadRequestException('Default max sandboxes must be a positive integer');
     }
     const entries = lines.map(({ line, value }) => {
-      const fields = value.split('\t').map(field => field.trim());
-      if (fields.length < 2 || fields.length > 3 || !fields[0] || !fields[1]) {
-        throw new BadRequestException(`Line ${line} must use label<TAB>secret<TAB>maxSandboxes`);
+      if (value.length < 8 || value.length > 1000 || !/^[^|\s]+\|[^\s|]+$/.test(value)) {
+        throw new BadRequestException(`Line ${line} must use username|token`);
       }
-      const maxSandboxes = fields[2] ? Number(fields[2]) : defaultMaxSandboxes;
-      if (maxSandboxes !== undefined && (!Number.isInteger(maxSandboxes) || maxSandboxes < 1)) {
-        throw new BadRequestException(`Line ${line} has an invalid max sandboxes value`);
-      }
-      if (fields[0].length < 2 || fields[0].length > 100 || fields[1].length < 8 || fields[1].length > 1000) {
-        throw new BadRequestException(`Line ${line} has an invalid label or secret`);
-      }
-      return { line, label: fields[0], secret: fields[1], maxSandboxes };
+      return {
+        line,
+        secret: value,
+        // The label is operational metadata only. Generate it server-side so
+        // the imported list never needs to expose or duplicate its secrets.
+        label: `Bulk key ${randomBytes(5).toString('hex')}`,
+        maxSandboxes: defaultMaxSandboxes,
+      };
     });
     const imported: Array<{ id: number; label: string }> = [];
     const failures: Array<{ line: number; message: string }> = [];
@@ -548,7 +547,7 @@ export class AdminService {
         const key = await this.createProviderApiKey(providerId, { label: entry.label, secret: entry.secret, maxSandboxes: entry.maxSandboxes });
         imported.push({ id: key.id, label: key.label });
       } catch (error) {
-        failures.push({ line: entry.line, message: error instanceof Error ? error.message.slice(0, 200) : 'Import failed' });
+        failures.push({ line: entry.line, message: 'Could not import this key' });
       }
     }
     return { imported, failures };
