@@ -133,6 +133,7 @@ export interface PaymentInvoice {
   completedAt: string | null;
 }
 export interface PaginatedPaymentInvoices { items: PaymentInvoice[]; total: number; page: number; pageSize: number; totalPages: number; }
+export interface BulkProviderApiKeyImportResult { imported: Array<{ id: number; label: string }>; failures: Array<{ line: number; message: string }>; }
 export interface User {
   id: number;
   name: string;
@@ -713,6 +714,9 @@ export function useDeleteProvider(options?: MutationConfig<void, { id: number }>
 }
 export function useCreateProviderApiKey(options?: MutationConfig<ProviderApiKey, { providerId: number; data: { label: string; secret: string; maxSandboxes?: number } }>) {
   return useMutation({ mutationFn: ({ providerId, data }) => request<ProviderApiKey>(`/admin/proxy/providers/${providerId}/api-keys`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
+}
+export function useBulkImportProviderApiKeys(options?: MutationConfig<BulkProviderApiKeyImportResult, { providerId: number; data: { content: string; maxSandboxes?: number } }>) {
+  return useMutation({ mutationFn: ({ providerId, data }) => request<BulkProviderApiKeyImportResult>(`/admin/proxy/providers/${providerId}/api-keys/bulk-import`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
 export function useUpdateProviderApiKey(options?: MutationConfig<ProviderApiKey, { id: number; data: { maxSandboxes: number } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<ProviderApiKey>(`/admin/proxy/provider-api-keys/${id}`, getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options });

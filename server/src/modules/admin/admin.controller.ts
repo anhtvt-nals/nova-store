@@ -3,7 +3,7 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
-import { AddCreditTopUpDto, AdjustCreditDto, CreateApiKeyDto, CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, DeductCreditDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderApiKeyDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
+import { AddCreditTopUpDto, AdjustCreditDto, BulkImportProviderApiKeysDto, CreateApiKeyDto, CreateBlaxelEgressGatewayDto, CreateCategoryDto, CreateProductDto, CreateProviderApiKeyDto, CreateProviderDto, CreateUserDto, DeductCreditDto, UpdateBlaxelEgressGatewayDto, UpdateCategoryDto, UpdateGeneralSettingsDto, UpdateOrderStatusDto, UpdateProductDto, UpdateProviderApiKeyDto, UpdateProviderDto, UpdateProxyPriceDto, UpdateUserDto } from './admin.dto';
 
 @UseGuards(AdminGuard)
 @Controller('admin')
@@ -55,6 +55,7 @@ export class AdminController {
   @Get('proxy/provider-api-keys') providerApiKeys() { return this.service.providerApiKeys(); }
   @Get('proxy/provisioning-jobs') provisioningJobs(@Query('page') page?: string) { return this.service.provisioningJobs(Number(page)); }
   @Post('proxy/providers/:id/api-keys') createProviderApiKey(@Param('id', ParseIntPipe) id: number, @Body() body: CreateProviderApiKeyDto) { return this.service.createProviderApiKey(id, body); }
+  @Post('proxy/providers/:id/api-keys/bulk-import') bulkImportProviderApiKeys(@Param('id', ParseIntPipe) id: number, @Body() body: BulkImportProviderApiKeysDto) { return this.service.bulkImportProviderApiKeys(id, body.content, body.maxSandboxes); }
   @Patch('proxy/provider-api-keys/:id') updateProviderApiKey(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateProviderApiKeyDto) { return this.service.updateProviderApiKey(id, body); }
   @Delete('proxy/provider-api-keys/:id') @HttpCode(204) revokeProviderApiKey(@Param('id', ParseIntPipe) id: number) { return this.service.revokeProviderApiKey(id); }
   @Get('proxy/blaxel-egress-gateways') blaxelEgressGateways() { return this.service.blaxelEgressGateways(); }

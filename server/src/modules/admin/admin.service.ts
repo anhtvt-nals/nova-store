@@ -518,6 +518,42 @@ export class AdminService {
     return { id: row.id, providerId: row.provider_id, label: row.label, maskedKey: `${row.key_prefix}••••${row.key_last4}`, status: row.status, maxSandboxes: row.max_sandboxes, createdAt: row.created_at };
   }
 
+  async bulkImportProviderApiKeys(providerId: number, rawContent: string, defaultMaxSandboxes?: number) {
+    const providerResult = await this.db.client.from('proxy_providers').select('id').eq('id', providerId).maybeSingle();
+    if (!this.db.unwrap(providerResult, 'Unable to validate provider')) throw new NotFoundException('Provider not found');
+    const lines = rawContent.replace(/\r/g, '').split('\n').map((line, index) => ({ line: index + 1, value: line.trim() })).filter(entry => entry.value);
+    if (!lines.length) throw new BadRequestException('Enter at least one API key');
+    if (lines.length > 50) throw new BadRequestException('A bulk import is limited to 50 API keys');
+    if (defaultMaxSandboxes !== undefined && (!Number.isInteger(defaultMaxSandboxes) || defaultMaxSandboxes < 1)) {
+      throw new BadRequestException('Default max sandboxes must be a positive integer');
+    }
+    const entries = lines.map(({ line, value }) => {
+      const fields = value.split('\t').map(field => field.trim());
+      if (fields.length < 2 || fields.length > 3 || !fields[0] || !fields[1]) {
+        throw new BadRequestException(`Line ${line} must use label<TAB>secret<TAB>maxSandboxes`);
+      }
+      const maxSandboxes = fields[2] ? Number(fields[2]) : defaultMaxSandboxes;
+      if (maxSandboxes !== undefined && (!Number.isInteger(maxSandboxes) || maxSandboxes < 1)) {
+        throw new BadRequestException(`Line ${line} has an invalid max sandboxes value`);
+      }
+      if (fields[0].length < 2 || fields[0].length > 100 || fields[1].length < 8 || fields[1].length > 1000) {
+        throw new BadRequestException(`Line ${line} has an invalid label or secret`);
+      }
+      return { line, label: fields[0], secret: fields[1], maxSandboxes };
+    });
+    const imported: Array<{ id: number; label: string }> = [];
+    const failures: Array<{ line: number; message: string }> = [];
+    for (const entry of entries) {
+      try {
+        const key = await this.createProviderApiKey(providerId, { label: entry.label, secret: entry.secret, maxSandboxes: entry.maxSandboxes });
+        imported.push({ id: key.id, label: key.label });
+      } catch (error) {
+        failures.push({ line: entry.line, message: error instanceof Error ? error.message.slice(0, 200) : 'Import failed' });
+      }
+    }
+    return { imported, failures };
+  }
+
   async updateProviderApiKey(id: number, dto: UpdateProviderApiKeyDto) {
     const result = await this.db.client.from('provider_api_keys').update({ max_sandboxes: dto.maxSandboxes }).eq('id', id)
       .select('id,provider_id,label,key_prefix,key_last4,status,max_sandboxes,created_at,revoked_reason,proxy_providers(name)').maybeSingle();

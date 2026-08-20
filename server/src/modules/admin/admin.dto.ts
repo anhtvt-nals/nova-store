@@ -112,6 +112,11 @@ export class CreateProviderApiKeyDto {
   @IsOptional() @IsInt() @Min(1) maxSandboxes?: number;
 }
 
+export class BulkImportProviderApiKeysDto {
+  @IsString() @Length(1, 50_000) content: string;
+  @IsOptional() @IsInt() @Min(1) maxSandboxes?: number;
+}
+
 export class UpdateProviderApiKeyDto {
   @IsInt() @Min(1) maxSandboxes: number;
 }
