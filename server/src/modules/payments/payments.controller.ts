@@ -17,6 +17,11 @@ export class PaymentsController {
     return this.service.createSumopodCheckout(user.profileId, user.role === 'admin', body);
   }
 
+  @Get('invoices')
+  invoices(@CurrentUser() user: AuthUser) {
+    return this.service.invoices(user.profileId);
+  }
+
   @Get('invoices/:id')
   invoiceStatus(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.invoiceStatus(user.profileId, id);

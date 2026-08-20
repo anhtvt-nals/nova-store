@@ -155,6 +155,27 @@ export class PaymentsService {
     return { id: invoice.id, status: invoice.status, amountIdr: Number(invoice.amount_idr), feeIdr: invoice.provider_fee_idr === null ? null : Number(invoice.provider_fee_idr), netAmountIdr: invoice.net_amount_idr === null ? null : Number(invoice.net_amount_idr), creditAmount: Number(invoice.credit_amount), expiresAt: invoice.expires_at, completedAt: invoice.completed_at };
   }
 
+  async invoices(profileId: number) {
+    this.assertPaymentsEnabled();
+    const result = await this.db.client.from('payment_invoices')
+      .select('id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,created_at,expires_at,completed_at')
+      .eq('profile_id', profileId).eq('provider', 'sumopod')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    const rows = this.db.unwrap(result, 'Unable to load payment invoices');
+    return rows.map(row => ({
+      id: row.id,
+      status: row.status,
+      amountIdr: Number(row.amount_idr),
+      feeIdr: row.provider_fee_idr === null ? null : Number(row.provider_fee_idr),
+      netAmountIdr: row.net_amount_idr === null ? null : Number(row.net_amount_idr),
+      creditAmount: Number(row.credit_amount),
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      completedAt: row.completed_at,
+    }));
+  }
+
   private assertPaymentsEnabled() {
     if (this.config.get<string>('SUMOPOD_ENABLED') !== 'true') {
       throw new ServiceUnavailableException('Sumopod payments are disabled');
