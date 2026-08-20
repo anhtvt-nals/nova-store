@@ -108,11 +108,23 @@ export class PaymentsService {
     }
     if (event.event_type !== 'payment.completed') return { received: true };
     const data = event.data;
-    const amount = Number(data?.amount);
-    const settlement = this.resolveSettlement(amount, data?.fee, `webhook ${data?.payment_id || 'unknown'}`, false);
-    if (!data?.payment_id || !data.order_id || !Number.isInteger(amount) || amount <= 0 || data.status !== 'completed') {
+    const paidAmountIdr = Number(data?.amount);
+    if (!data?.payment_id || !data.order_id || !/^NODENESIA-SUMO-[0-9a-f-]{36}$/.test(data.order_id) || !Number.isSafeInteger(paidAmountIdr) || paidAmountIdr <= 0 || data.status !== 'completed') {
       throw new BadRequestException('Invalid Sumopod completed payment payload');
     }
+    const invoiceResult = await this.db.client.from('payment_invoices')
+      .select('id,amount_idr,provider_fee_idr,provider_payment_id,status')
+      .eq('merchant_order_id', data.order_id).eq('provider', 'sumopod').maybeSingle();
+    const invoice = this.db.unwrap(invoiceResult, 'Unable to load Sumopod payment invoice');
+    if (!invoice) throw new BadRequestException('Sumopod payment invoice not found');
+    const amount = this.normalizeCompletedPaymentAmount({
+      invoiceId: invoice.id,
+      invoiceAmountIdr: Number(invoice.amount_idr),
+      invoiceFeeIdr: invoice.provider_fee_idr === null ? null : Number(invoice.provider_fee_idr),
+      paidAmountIdr,
+      webhookFeeIdr: this.optionalProviderMoney(data.fee, `webhook ${data.payment_id} fee`),
+    });
+    const settlement = this.resolveSettlement(amount, data?.fee, `webhook ${data.payment_id}`, false);
     if (!settlement) {
       throw new BadRequestException('Invalid Sumopod settlement payload');
     }
@@ -202,6 +214,28 @@ export class PaymentsService {
     // `net_amount` from the live QRIS response equals the invoice amount. The
     // fee is paid in addition to that amount, so it must never reduce Credit.
     return { feeIdr, netAmountIdr: grossAmountIdr };
+  }
+
+  private normalizeCompletedPaymentAmount(input: {
+    invoiceId: string;
+    invoiceAmountIdr: number;
+    invoiceFeeIdr: number | null;
+    paidAmountIdr: number;
+    webhookFeeIdr: number | null;
+  }) {
+    const { invoiceId, invoiceAmountIdr, invoiceFeeIdr, paidAmountIdr, webhookFeeIdr } = input;
+    if (!Number.isSafeInteger(invoiceAmountIdr) || invoiceAmountIdr <= 0) {
+      throw new BadGatewayException('Sumopod invoice amount is invalid');
+    }
+    // SumoPod may report `amount` either as the invoice amount or as the
+    // customer-paid amount including the QRIS surcharge. Both formats are
+    // accepted only when they reconcile exactly to the signed invoice.
+    if (paidAmountIdr === invoiceAmountIdr) return invoiceAmountIdr;
+    if (invoiceFeeIdr !== null && webhookFeeIdr === invoiceFeeIdr && paidAmountIdr === invoiceAmountIdr + invoiceFeeIdr) {
+      return invoiceAmountIdr;
+    }
+    this.logger.warn(`Sumopod completed payment amount mismatch for invoice ${invoiceId}: paid=${paidAmountIdr}, invoice=${invoiceAmountIdr}, invoiceFee=${String(invoiceFeeIdr)}, webhookFee=${String(webhookFeeIdr)}`);
+    throw new BadGatewayException('Sumopod payment amount does not reconcile with invoice');
   }
 
   private optionalHttpsCallback(key: string) {
