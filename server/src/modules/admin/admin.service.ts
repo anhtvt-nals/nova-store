@@ -236,6 +236,39 @@ export class AdminService {
     };
   }
 
+  async paymentInvoices(requestedPage?: number, requestedPageSize?: number) {
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 20;
+    const from = (page - 1) * pageSize;
+    const result = await this.db.client.from('payment_invoices')
+      .select('id,merchant_order_id,provider_payment_id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,created_at,updated_at,expires_at,completed_at,profiles(name,email)', { count: 'exact' })
+      .eq('provider', 'sumopod')
+      .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    const rows = this.db.unwrap(result, 'Unable to load payment invoices');
+    const items = rows.map((row: any) => {
+      const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+      return {
+        id: row.id,
+        customerName: profile?.name || null,
+        customerEmail: profile?.email || null,
+        merchantOrderId: row.merchant_order_id,
+        providerPaymentId: row.provider_payment_id || null,
+        status: row.status,
+        amountIdr: Number(row.amount_idr),
+        feeIdr: row.provider_fee_idr === null ? null : Number(row.provider_fee_idr),
+        netAmountIdr: row.net_amount_idr === null ? null : Number(row.net_amount_idr),
+        creditAmount: Number(row.credit_amount),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        expiresAt: row.expires_at,
+        completedAt: row.completed_at,
+      };
+    });
+    const total = result.count || 0;
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
   async adjustCredit(profileId: number, amount: number, note: string, actorProfileId: number) {
     if (!Number.isFinite(amount) || amount === 0) throw new BadRequestException('Credit adjustment cannot be zero');
     if (amount < 0 && !note.trim()) throw new BadRequestException('A deduction note is required');

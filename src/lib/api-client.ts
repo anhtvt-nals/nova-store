@@ -116,6 +116,23 @@ export interface ProvisioningJobLog {
   nodeStatus: RuntimeProxyNodeStatus | null; providerName: string | null; providerCode: string | null; createdAt: string;
 }
 export interface PaginatedProvisioningJobs { items: ProvisioningJobLog[]; total: number; page: number; pageSize: 20; totalPages: number; }
+export interface PaymentInvoice {
+  id: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  merchantOrderId: string;
+  providerPaymentId: string | null;
+  status: 'pending' | 'completed' | 'failed' | 'expired';
+  amountIdr: number;
+  feeIdr: number | null;
+  netAmountIdr: number | null;
+  creditAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  completedAt: string | null;
+}
+export interface PaginatedPaymentInvoices { items: PaymentInvoice[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface User {
   id: number;
   name: string;
@@ -403,6 +420,7 @@ export const getListAdminProductsQueryKey = () => ['admin-products'] as const;
 export const getListProvidersQueryKey = () => ['proxy-providers'] as const;
 export const getListProviderApiKeysQueryKey = () => ['provider-api-keys'] as const;
 export const getProvisioningJobsQueryKey = (page: number) => ['provisioning-jobs', page] as const;
+export const getPaymentInvoicesQueryKey = (page: number, pageSize: number) => ['payment-invoices', page, pageSize] as const;
 export const getProxySettingsQueryKey = () => ['proxy-settings'] as const;
 export const getGeneralSettingsQueryKey = () => ['general-settings'] as const;
 export const getCreditWalletsQueryKey = (page?: number, pageSize?: number, search = '') => page === undefined
@@ -580,6 +598,9 @@ export function useListProviderApiKeys(config?: QueryConfig<ProviderApiKey[]>) {
 }
 export function useProvisioningJobs(page = 1, config?: QueryConfig<PaginatedProvisioningJobs>) {
   return query(getProvisioningJobsQueryKey(page), `/admin/proxy/provisioning-jobs?page=${page}`, getAccessToken, config);
+}
+export function usePaymentInvoices(page = 1, pageSize = 20, config?: QueryConfig<PaginatedPaymentInvoices>) {
+  return query(getPaymentInvoicesQueryKey(page, pageSize), `/admin/payment-invoices?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
 }
 export function useProxySettings(config?: QueryConfig<ProxyPriceSetting[]>) {
   return query(getProxySettingsQueryKey(), '/admin/proxy/settings', getAccessToken, config);

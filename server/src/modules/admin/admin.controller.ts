@@ -32,6 +32,10 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) { return this.service.creditHistory(id, Number(page), Number(pageSize)); }
+  @Get('payment-invoices') paymentInvoices(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) { return this.service.paymentInvoices(Number(page), Number(pageSize)); }
   @Post('credits/:id/adjust') adjustCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AdjustCreditDto) { return this.service.adjustCredit(id, body.amount, body.note || '', user.profileId); }
   @Post('credits/:id/top-up') topUpCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: AddCreditTopUpDto) { return this.service.topUpCredit(id, body.amount, body.currency, body.note || '', user.profileId); }
   @Post('credits/:id/deduct') deductCredit(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() body: DeductCreditDto) { return this.service.deductCredit(id, body.amount, body.note, user.profileId); }
