@@ -59,9 +59,12 @@ export class PaymentsService {
         throw new Error(`Sumopod HTTP ${response.status}: ${providerMessage}`);
       }
       const url = this.parsePaymentUrl(payload.payment_link_url, baseUrl);
-      const feeIdr = this.parseProviderMoney(payload.fee, 'fee');
-      const netAmountIdr = this.parseProviderMoney(payload.net_amount, 'net amount');
+      const returnedFeeIdr = this.optionalProviderMoney(payload.fee, 'fee');
+      const returnedNetAmountIdr = this.optionalProviderMoney(payload.net_amount, 'net amount');
+      const feeIdr = returnedFeeIdr ?? (returnedNetAmountIdr === null ? null : dto.amountIdr - returnedNetAmountIdr);
+      const netAmountIdr = returnedNetAmountIdr ?? (returnedFeeIdr === null ? null : dto.amountIdr - returnedFeeIdr);
       if (feeIdr === null || netAmountIdr === null || feeIdr < 0 || netAmountIdr <= 0 || netAmountIdr > dto.amountIdr || feeIdr + netAmountIdr !== dto.amountIdr) {
+        this.logger.warn(`Sumopod invalid settlement for invoice ${invoice.id}: gross=${dto.amountIdr}, fee=${String(payload.fee)}, net=${String(payload.net_amount)}`);
         throw new Error('Sumopod returned invalid fee settlement');
       }
       const creditAmount = this.creditForIdr(netAmountIdr, values);
@@ -186,6 +189,10 @@ export class PaymentsService {
       return null;
     }
     return amount;
+  }
+
+  private optionalProviderMoney(value: unknown, field: string) {
+    return value === undefined || value === null ? null : this.parseProviderMoney(value, field);
   }
 
   private optionalHttpsCallback(key: string) {
