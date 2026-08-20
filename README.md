@@ -194,10 +194,11 @@ The installer pins GOST `3.2.6`, creates an unprivileged `nodenesia-gost` user, 
 
 `worker/app.js` is retained only as reference material and now refuses to start unless `ALLOW_LEGACY_WORKER=true` is explicitly supplied to the process. It is not part of the supported production runtime.
 
-## Sumopod sandbox Credit top-ups
+## Sumopod Credit top-ups
 
-Apply `202608190010_sumopod_credit_topups.sql`, then configure the sandbox
-values from `.env.example`. In the Sumopod project settings, set the webhook
+Apply migrations `202608190010_sumopod_credit_topups.sql` through
+`202608190012_remove_sumopod_topup_ceiling.sql`, then configure the values
+from `.env.example`. In the Sumopod project settings, set the webhook
 URL to:
 
 ```text
@@ -207,19 +208,29 @@ https://your-domain/api/payments/sumopod/webhook
 Use the project's **Svix signing secret** (`whsec_...`) for
 `SUMOPOD_WEBHOOK_SECRET`. Nodenesia requires the signed raw webhook body and
 accepts `payment.completed`, `payment.failed`, and `payment.expired` events.
-If Sumopod's dashboard test sends only `X-Webhook-Token`, configure its exact
-project token as `SUMOPOD_WEBHOOK_TOKEN`; it is an authenticated fallback, not
-a browser value.
-Do not configure a browser-accessible API key or use the return URL as payment
-confirmation.
+The `X-Webhook-Token` fallback is accepted only in sandbox mode. Production
+requires the Svix headers and signature; do not configure a browser-accessible
+API key or use the return URL as payment confirmation.
 
-For this sandbox rollout, set both `SUMOPOD_ENABLED=true` and
-`SUMOPOD_SANDBOX_ONLY=true`. The payment-link endpoint is protected by the
-administrator guard (including MFA when enabled), and the billing UI is shown
-only to an administrator. A completed payment is accepted only when its signed
-event, merchant order ID, payment ID, currency, and IDR amount match the
-server-created invoice. The database locks that invoice and records a unique
-ledger reference, so webhook retries cannot add Credit twice.
+For real payments configure:
+
+```dotenv
+SUMOPOD_ENABLED=true
+SUMOPOD_MODE=production
+SUMOPOD_CUSTOMER_TOPUPS_ENABLED=true
+SUMOPOD_API_BASE_URL=https://api-pay.sumopod.com/api/v1
+SUMOPOD_API_KEY=live-api-key-from-sumopod
+SUMOPOD_WEBHOOK_SECRET=whsec_live-signing-secret
+SUMOPOD_WEBHOOK_TOKEN=
+```
+
+The API refuses a production mode/endpoint mismatch. It creates the invoice
+before calling SumoPod and exposes only the hosted payment URL to the browser.
+A completed payment is accepted only when its signed event, merchant order ID,
+payment ID, gross amount, fee/net settlement (when supplied), and currency
+match the server-created invoice. Credit is calculated from `net_amount`, not
+the amount the customer paid. The database locks the invoice and records a
+unique ledger reference, so webhook retries cannot add Credit twice.
 
 ## Adding another service
 

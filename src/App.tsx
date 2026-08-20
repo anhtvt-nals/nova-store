@@ -1240,7 +1240,10 @@ function DashboardBillingPage() {
   useEffect(() => {
     if (invoice.data?.status === 'completed') void credit.refetch();
   }, [invoice.data?.status, credit]);
-  const isAdmin = identity.data?.role === 'admin';
+  // Server-side configuration remains the authority. Rendering the form for
+  // every authenticated user permits the production rollout flag to take
+  // effect without exposing payment credentials to the browser.
+  const isAdmin = true;
   const settledFeeIdr = invoice.data?.feeIdr ?? payment?.feeIdr ?? estimatedFeeIdr;
   const settledNetAmountIdr = invoice.data?.netAmountIdr ?? payment?.netAmountIdr ?? estimatedNetAmountIdr;
   const settledCredit = invoice.data?.creditAmount ?? payment?.creditAmount ?? estimatedCredit;

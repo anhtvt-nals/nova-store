@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
@@ -18,8 +18,8 @@ export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   constructor(private readonly db: DatabaseService, private readonly config: ConfigService) {}
 
-  async createSumopodCheckout(profileId: number, dto: CreateSumopodCheckoutDto) {
-    this.assertSandboxAdminMode();
+  async createSumopodCheckout(profileId: number, isAdmin: boolean, dto: CreateSumopodCheckoutDto) {
+    this.assertCheckoutEnabled(isAdmin);
     const apiKey = this.requiredConfig('SUMOPOD_API_KEY');
     const baseUrl = (this.config.get<string>('SUMOPOD_API_BASE_URL') || 'https://api-pay-sandbox.sumopod.com/api/v1').replace(/\/+$/, '');
     const successUrl = this.optionalHttpsCallback('SUMOPOD_SUCCESS_RETURN_URL');
@@ -73,7 +73,13 @@ export class PaymentsService {
       this.db.unwrap(update, 'Unable to finalize payment invoice');
       return { invoiceId: invoice.id, paymentUrl: url, expiresAt: payload.expires_at || expiresAt, creditAmount, amountIdr: dto.amountIdr, feeIdr, netAmountIdr };
     } catch (error) {
-      await this.db.client.from('payment_invoices').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', invoice.id).eq('status', 'pending');
+      // A timeout or malformed success response is ambiguous: the provider may
+      // have created the payment and may still send a valid webhook. Do not
+      // reject that payment locally. Only a definite non-2xx provider response
+      // closes the invoice; all other pending invoices expire naturally.
+      if (error instanceof Error && /^Sumopod HTTP [45]\d{2}:/.test(error.message)) {
+        await this.db.client.from('payment_invoices').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', invoice.id).eq('status', 'pending');
+      }
       if (error instanceof BadRequestException) throw error;
       this.logger.warn(`Sumopod checkout failed for invoice ${invoice.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
       throw new BadGatewayException('Unable to create Sumopod payment link');
@@ -81,7 +87,7 @@ export class PaymentsService {
   }
 
   async handleSumopodWebhook(headers: Record<string, string | string[] | undefined>, rawBody: Buffer) {
-    this.assertSandboxAdminMode();
+    this.assertPaymentsEnabled();
     this.verifyWebhookAuthenticity(headers, rawBody);
     let event: SumopodWebhook;
     try { event = JSON.parse(rawBody.toString('utf8')) as SumopodWebhook; } catch { throw new BadRequestException('Invalid Sumopod webhook JSON'); }
@@ -124,7 +130,7 @@ export class PaymentsService {
   }
 
   async invoiceStatus(profileId: number, invoiceId: string) {
-    this.assertSandboxAdminMode();
+    this.assertPaymentsEnabled();
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(invoiceId)) throw new BadRequestException('Invalid payment invoice');
     const result = await this.db.client.from('payment_invoices')
       .select('id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,expires_at,completed_at')
@@ -134,10 +140,33 @@ export class PaymentsService {
     return { id: invoice.id, status: invoice.status, amountIdr: Number(invoice.amount_idr), feeIdr: invoice.provider_fee_idr === null ? null : Number(invoice.provider_fee_idr), netAmountIdr: invoice.net_amount_idr === null ? null : Number(invoice.net_amount_idr), creditAmount: Number(invoice.credit_amount), expiresAt: invoice.expires_at, completedAt: invoice.completed_at };
   }
 
-  private assertSandboxAdminMode() {
-    if (this.config.get<string>('SUMOPOD_ENABLED') !== 'true' || this.config.get<string>('SUMOPOD_SANDBOX_ONLY') !== 'true') {
-      throw new ServiceUnavailableException('Sumopod sandbox top-ups are disabled');
+  private assertPaymentsEnabled() {
+    if (this.config.get<string>('SUMOPOD_ENABLED') !== 'true') {
+      throw new ServiceUnavailableException('Sumopod payments are disabled');
     }
+    const mode = this.sumopodMode();
+    const baseUrl = (this.config.get<string>('SUMOPOD_API_BASE_URL') || '').replace(/\/+$/, '');
+    const expectedBaseUrl = mode === 'production'
+      ? 'https://api-pay.sumopod.com/api/v1'
+      : 'https://api-pay-sandbox.sumopod.com/api/v1';
+    if (baseUrl !== expectedBaseUrl) {
+      throw new ServiceUnavailableException(`SUMOPOD_API_BASE_URL must use the ${mode} Sumopod endpoint`);
+    }
+  }
+
+  private assertCheckoutEnabled(isAdmin: boolean) {
+    this.assertPaymentsEnabled();
+    if (!isAdmin && this.config.get<string>('SUMOPOD_CUSTOMER_TOPUPS_ENABLED') !== 'true') {
+      throw new ForbiddenException('Credit top-ups are not available to customers yet');
+    }
+  }
+
+  private sumopodMode(): 'sandbox' | 'production' {
+    const mode = this.config.get<string>('SUMOPOD_MODE')?.trim().toLowerCase() || 'sandbox';
+    if (mode !== 'sandbox' && mode !== 'production') {
+      throw new ServiceUnavailableException('SUMOPOD_MODE must be sandbox or production');
+    }
+    return mode;
   }
 
   private requiredConfig(key: string) {
@@ -199,6 +228,17 @@ export class PaymentsService {
   }
 
   private verifyWebhookAuthenticity(headers: Record<string, string | string[] | undefined>, rawBody: Buffer) {
+    // A static webhook token is useful for the Sumopod sandbox tester but is
+    // deliberately not accepted for live money movement. Production requires
+    // Svix's timestamped, replay-resistant HMAC signature.
+    if (this.sumopodMode() === 'production') {
+      const svixId = this.optionalOneHeader(headers['svix-id']);
+      const svixTimestamp = this.optionalOneHeader(headers['svix-timestamp']);
+      const svixSignature = this.optionalOneHeader(headers['svix-signature']);
+      if (!svixId || !svixTimestamp || !svixSignature) throw new UnauthorizedException('Missing Sumopod webhook signature');
+      this.verifySvixSignature(svixId, svixTimestamp, svixSignature, rawBody);
+      return;
+    }
     const suppliedToken = this.optionalOneHeader(headers['x-webhook-token']);
     const expectedToken = this.config.get<string>('SUMOPOD_WEBHOOK_TOKEN')?.trim();
     if (suppliedToken && expectedToken && this.safeEqual(suppliedToken, expectedToken)) return;
