@@ -59,14 +59,12 @@ export class PaymentsService {
         throw new Error(`Sumopod HTTP ${response.status}: ${providerMessage}`);
       }
       const url = this.parsePaymentUrl(payload.payment_link_url, baseUrl);
-      const returnedFeeIdr = this.optionalProviderMoney(payload.fee, 'fee');
-      const returnedNetAmountIdr = this.optionalProviderMoney(payload.net_amount, 'net amount');
-      const feeIdr = returnedFeeIdr ?? (returnedNetAmountIdr === null ? null : dto.amountIdr - returnedNetAmountIdr);
-      const netAmountIdr = returnedNetAmountIdr ?? (returnedFeeIdr === null ? null : dto.amountIdr - returnedFeeIdr);
-      if (feeIdr === null || netAmountIdr === null || feeIdr < 0 || netAmountIdr <= 0 || netAmountIdr > dto.amountIdr || feeIdr + netAmountIdr !== dto.amountIdr) {
+      const settlement = this.resolveSettlement(dto.amountIdr, payload.fee, payload.net_amount, `invoice ${invoice.id}`);
+      if (!settlement) {
         this.logger.warn(`Sumopod invalid settlement for invoice ${invoice.id}: gross=${dto.amountIdr}, fee=${String(payload.fee)}, net=${String(payload.net_amount)}`);
         throw new Error('Sumopod returned invalid fee settlement');
       }
+      const { feeIdr, netAmountIdr } = settlement;
       const creditAmount = this.creditForIdr(netAmountIdr, values);
       if (!Number.isFinite(creditAmount) || creditAmount <= 0) throw new Error('Sumopod net settlement is too small');
       const update = await this.db.client.from('payment_invoices').update({
@@ -108,12 +106,11 @@ export class PaymentsService {
     if (event.event_type !== 'payment.completed') return { received: true };
     const data = event.data;
     const amount = Number(data?.amount);
-    const feeIdr = data?.fee === undefined ? null : this.parseProviderMoney(data.fee, 'webhook fee');
-    const netAmountIdr = data?.net_amount === undefined ? null : this.parseProviderMoney(data.net_amount, 'webhook net amount');
+    const settlement = this.resolveSettlement(amount, data?.fee, data?.net_amount, `webhook ${data?.payment_id || 'unknown'}`);
     if (!data?.payment_id || !data.order_id || !Number.isInteger(amount) || amount <= 0 || data.status !== 'completed') {
       throw new BadRequestException('Invalid Sumopod completed payment payload');
     }
-    if ((data?.fee !== undefined && feeIdr === null) || (data?.net_amount !== undefined && netAmountIdr === null)) {
+    if (!settlement) {
       throw new BadRequestException('Invalid Sumopod settlement payload');
     }
     const completedAt = data.completed_at ? new Date(data.completed_at) : new Date();
@@ -123,8 +120,8 @@ export class PaymentsService {
       target_payment_id: data.payment_id,
       target_event_id: this.optionalOneHeader(headers['svix-id']) || `sumopod-token-${data.payment_id}`,
       target_amount_idr: amount,
-      target_fee_idr: feeIdr,
-      target_net_amount_idr: netAmountIdr,
+      target_fee_idr: settlement.feeIdr,
+      target_net_amount_idr: settlement.netAmountIdr,
       target_currency: 'IDR',
       target_completed_at: completedAt.toISOString(),
     });
@@ -193,6 +190,24 @@ export class PaymentsService {
 
   private optionalProviderMoney(value: unknown, field: string) {
     return value === undefined || value === null ? null : this.parseProviderMoney(value, field);
+  }
+
+  private resolveSettlement(grossAmountIdr: number, rawFee: unknown, rawNetAmount: unknown, source: string) {
+    const feeIdr = this.optionalProviderMoney(rawFee, `${source} fee`);
+    const reportedNetAmountIdr = this.optionalProviderMoney(rawNetAmount, `${source} net amount`);
+    if (feeIdr !== null) {
+      if (feeIdr < 0 || feeIdr >= grossAmountIdr) return null;
+      const netAmountIdr = grossAmountIdr - feeIdr;
+      // Live Sumopod currently returns `net_amount` as the gross amount for
+      // QRIS. The signed fee is the authoritative deduction, so derive the
+      // wallet value from gross - fee and merely record this inconsistency.
+      if (reportedNetAmountIdr !== null && reportedNetAmountIdr !== netAmountIdr) {
+        this.logger.warn(`Sumopod ${source} net amount differs from settled value; using signed fee deduction`);
+      }
+      return { feeIdr, netAmountIdr };
+    }
+    if (reportedNetAmountIdr === null || reportedNetAmountIdr <= 0 || reportedNetAmountIdr > grossAmountIdr) return null;
+    return { feeIdr: grossAmountIdr - reportedNetAmountIdr, netAmountIdr: reportedNetAmountIdr };
   }
 
   private optionalHttpsCallback(key: string) {
