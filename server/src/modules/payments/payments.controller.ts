@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
@@ -18,8 +18,8 @@ export class PaymentsController {
   }
 
   @Get('invoices')
-  invoices(@CurrentUser() user: AuthUser) {
-    return this.service.invoices(user.profileId);
+  invoices(@CurrentUser() user: AuthUser, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.service.invoices(user.profileId, Number(page), Number(pageSize));
   }
 
   @Get('invoices/:id')

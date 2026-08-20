@@ -222,6 +222,7 @@ export interface CreditBalance { balance: number; }
 export interface SumopodCheckout { invoiceId: string; paymentUrl: string; expiresAt: string; creditAmount: number; amountIdr: number; feeIdr: number; netAmountIdr: number; }
 export interface SumopodInvoice { id: string; status: 'pending' | 'completed' | 'failed' | 'expired'; amountIdr: number; feeIdr: number | null; netAmountIdr: number | null; creditAmount: number; expiresAt: string; completedAt: string | null; }
 export interface SumopodInvoiceHistoryItem extends SumopodInvoice { createdAt: string; }
+export interface PaginatedSumopodInvoices { items: SumopodInvoiceHistoryItem[]; total: number; page: number; pageSize: number; totalPages: number; }
 export interface ProxyConnectionExport { filename: string; content: string; count: number; }
 export interface Category {
   id: number;
@@ -404,7 +405,7 @@ export const getGetOrderConnectionQueryKey = (id: number, nodeId?: number) => ['
 export const getOrderQuoteQueryKey = (productId: number, nodeCount: number, rentalDays: number) => ['order-quote', productId, nodeCount, rentalDays] as const;
 export const getCreditBalanceQueryKey = () => ['credit-balance'] as const;
 export const getSumopodInvoiceQueryKey = (id: string) => ['sumopod-invoice', id] as const;
-export const getSumopodInvoicesQueryKey = () => ['sumopod-invoices'] as const;
+export const getSumopodInvoicesQueryKey = (page: number, pageSize: number) => ['sumopod-invoices', page, pageSize] as const;
 export const getStaticResidentialOrdersQueryKey = () => ['static-residential-orders'] as const;
 export const getStaticResidentialQuoteQueryKey = (days: number, quotaGb: number) => ['static-residential-quote', days, quotaGb] as const;
 export const getStaticResidentialInventoryQueryKey = (page?: number, pageSize?: number) => page === undefined
@@ -560,8 +561,8 @@ export function useCreateSumopodCheckout(options?: MutationConfig<SumopodCheckou
 export function useSumopodInvoice(id: string | null, config?: QueryConfig<SumopodInvoice>) {
   return useQuery<SumopodInvoice, Error>({ queryKey: config?.query?.queryKey || getSumopodInvoiceQueryKey(id || 'none'), queryFn: () => request<SumopodInvoice>(`/payments/sumopod/invoices/${id}`, getAccessToken), enabled: Boolean(id), ...config?.query });
 }
-export function useSumopodInvoices(config?: QueryConfig<SumopodInvoiceHistoryItem[]>) {
-  return query(getSumopodInvoicesQueryKey(), '/payments/sumopod/invoices', getAccessToken, config);
+export function useSumopodInvoices(page = 1, pageSize = 10, config?: QueryConfig<PaginatedSumopodInvoices>) {
+  return query(getSumopodInvoicesQueryKey(page, pageSize), `/payments/sumopod/invoices?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
 }
 export function useGetAdminOverview(config?: QueryConfig<AdminOverview>) {
   return query(getGetAdminOverviewQueryKey(), '/admin/overview', getAccessToken, config);

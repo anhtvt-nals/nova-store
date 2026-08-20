@@ -155,15 +155,18 @@ export class PaymentsService {
     return { id: invoice.id, status: invoice.status, amountIdr: Number(invoice.amount_idr), feeIdr: invoice.provider_fee_idr === null ? null : Number(invoice.provider_fee_idr), netAmountIdr: invoice.net_amount_idr === null ? null : Number(invoice.net_amount_idr), creditAmount: Number(invoice.credit_amount), expiresAt: invoice.expires_at, completedAt: invoice.completed_at };
   }
 
-  async invoices(profileId: number) {
+  async invoices(profileId: number, requestedPage?: number, requestedPageSize?: number) {
     this.assertPaymentsEnabled();
+    const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage!, 10_000)) : 1;
+    const pageSize = Number.isInteger(requestedPageSize) ? Math.max(1, Math.min(requestedPageSize!, 50)) : 10;
+    const from = (page - 1) * pageSize;
     const result = await this.db.client.from('payment_invoices')
-      .select('id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,created_at,expires_at,completed_at')
+      .select('id,status,amount_idr,provider_fee_idr,net_amount_idr,credit_amount,created_at,expires_at,completed_at', { count: 'exact' })
       .eq('profile_id', profileId).eq('provider', 'sumopod')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .range(from, from + pageSize - 1);
     const rows = this.db.unwrap(result, 'Unable to load payment invoices');
-    return rows.map(row => ({
+    const items = rows.map(row => ({
       id: row.id,
       status: row.status,
       amountIdr: Number(row.amount_idr),
@@ -174,6 +177,8 @@ export class PaymentsService {
       expiresAt: row.expires_at,
       completedAt: row.completed_at,
     }));
+    const total = result.count || 0;
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   private assertPaymentsEnabled() {
