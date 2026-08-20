@@ -1219,7 +1219,7 @@ function DashboardBillingPage() {
   const credit = useCreditBalance();
   const identity = useCurrentUser();
   const checkout = useCreateSumopodCheckout();
-  const [amountIdr, setAmountIdr] = useState(50_000);
+  const [amountIdr, setAmountIdr] = useState(1);
   const [method, setMethod] = useState<'QRIS' | 'QRIS_INSTANT'>('QRIS');
   const [payment, setPayment] = useState<SumopodCheckout | null>(null);
   // This is an estimate for transparency only; Credit is always derived from
@@ -1231,7 +1231,7 @@ function DashboardBillingPage() {
   const invoice = useSumopodInvoice(payment?.invoiceId || null, { query: { refetchInterval: query => query.state.data?.status === 'pending' ? 3_000 : false } });
   const updateDepositAmount = (rawValue: string) => {
     const parsed = Number(rawValue);
-    if (Number.isSafeInteger(parsed) && parsed >= 10_000) setAmountIdr(parsed);
+    if (Number.isSafeInteger(parsed) && parsed > 0) setAmountIdr(parsed);
   };
   const startTopUp = () => checkout.mutate({ data: { amountIdr, paymentMethod: method } }, {
     onSuccess: created => { setPayment(created); },

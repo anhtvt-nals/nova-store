@@ -2,7 +2,7 @@ import { IsIn, IsInt, Min } from 'class-validator';
 
 export class CreateSumopodCheckoutDto {
   @IsInt()
-  @Min(10_000)
+  @Min(1)
   amountIdr: number;
 
   @IsIn(['QRIS', 'QRIS_INSTANT'])
