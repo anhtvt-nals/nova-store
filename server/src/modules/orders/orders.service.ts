@@ -88,7 +88,7 @@ export class OrdersService {
     const proxyType = requestedProxyType as 'datacenter' | 'residential' | undefined;
     const [nodesResult, credential] = await Promise.all([
       this.db.client.from('proxy_nodes')
-        .select('id,order_id,public_host,tunnel_port,status,orders!inner(profile_id,status,expires_at,products!inner(proxy_type))')
+        .select('id,order_id,public_host,tunnel_port,status,metadata,orders!inner(profile_id,status,expires_at,products!inner(proxy_type))')
         .eq('orders.profile_id', profileId)
         .eq('orders.status', 'active')
         .gt('orders.expires_at', now)
@@ -106,8 +106,12 @@ export class OrdersService {
     const lines = nodes
       .filter(node => node.public_host && node.tunnel_port)
       .sort((a, b) => Number(a.id) - Number(b.id))
-      .map(node => `socks5://${encode(credential.username)}:${encode(credential.password)}@${node.public_host}:${node.tunnel_port}`);
-    return { filename: `nodenesia-${proxyType || 'socks5'}-socks5.txt`, content: `${lines.join('\n')}${lines.length ? '\n' : ''}`, count: lines.length };
+      .flatMap(node => {
+        const endpoint = `${encode(credential.username)}:${encode(credential.password)}@${node.public_host}:${node.tunnel_port}`;
+        return node.metadata?.httpProxyEnabled ? [`socks5://${endpoint}`, `http://${endpoint}`] : [`socks5://${endpoint}`];
+      });
+    const hasHttp = nodes.some(node => node.public_host && node.tunnel_port && node.metadata?.httpProxyEnabled);
+    return { filename: `nodenesia-${proxyType || 'proxy'}-${hasHttp ? 'http-socks5' : 'socks5'}.txt`, content: `${lines.join('\n')}${lines.length ? '\n' : ''}`, count: nodes.filter(node => node.public_host && node.tunnel_port).length };
   }
 
   private async availableCustomerCapacity() {
@@ -140,7 +144,7 @@ export class OrdersService {
     if (order.status !== 'active' || (order.expires_at && new Date(order.expires_at) <= new Date())) throw new BadRequestException('Order is not active');
     const resource = Array.isArray(order.resources) ? order.resources[0] : order.resources;
     let nodeQuery = this.db.client.from('proxy_nodes')
-      .select('id,public_host,tunnel_port,next_rotation_at,status')
+      .select('id,public_host,tunnel_port,next_rotation_at,status,metadata')
       .eq('order_id', orderId);
     if (nodeId) nodeQuery = nodeQuery.eq('id', nodeId);
     const nodeResult = await nodeQuery.order('id').limit(1).maybeSingle();
@@ -156,7 +160,7 @@ export class OrdersService {
       port: Number(node.tunnel_port || resource?.secrets?.port),
       username: accountCredential?.username || resource?.secrets?.username,
       password: accountCredential?.password || resource?.secrets?.password,
-      protocol: resource?.capabilities?.protocol || 'SOCKS5',
+      protocol: node.metadata?.httpProxyEnabled ? 'HTTP + SOCKS5' : (resource?.capabilities?.protocol || 'SOCKS5'),
       nextRotationAt: node.next_rotation_at || nextRotation.toISOString(),
     };
   }

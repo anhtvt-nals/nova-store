@@ -17,7 +17,7 @@ export class ProxyService {
     const [result, credential] = await Promise.all([
       this.db.client
         .from('proxy_nodes')
-        .select('id,order_id,status,public_host,tunnel_port,egress_ip,egress_country_code,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_message,orders!inner(status,expires_at)')
+        .select('id,order_id,status,public_host,tunnel_port,egress_ip,egress_country_code,last_health_at,last_status_change_at,next_rotation_at,expires_at,error_message,metadata,orders!inner(status,expires_at)')
         .eq('profile_id', profileId)
         .neq('status', 'terminated')
         .order('created_at', { ascending: false }),
@@ -44,7 +44,7 @@ export class ProxyService {
         errorMessage: row.error_message ? 'Node provisioning failed. Please contact support.' : null,
         rotationUrl: orderIsActive ? this.rotationPath(row.id, profileId, row.order_id, order.expires_at) : null,
         connection: orderIsActive && credential && row.public_host && row.tunnel_port
-          ? { username: credential.username, password: credential.password, protocol: 'SOCKS5' }
+          ? { username: credential.username, password: credential.password, protocol: row.metadata?.httpProxyEnabled ? 'HTTP + SOCKS5' : 'SOCKS5' }
           : null,
       };
     });

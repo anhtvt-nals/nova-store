@@ -17,7 +17,9 @@ export class GostCommandBuilder {
         name: 'nodenesia-socks',
         addr: `127.0.0.1:${input.gost.localPort}`,
         handler: {
-          type: 'socks5',
+          // `auto` identifies HTTP proxy and SOCKS4/5 requests on one TCP
+          // listener while retaining node-scoped authentication and limits.
+          type: 'auto',
           auth: { username: input.gost.socksUsername, password: input.gost.socksPassword },
           observer: 'usage-observer',
           metadata: { 'observer.period': '5s', 'observer.resetTraffic': false },
@@ -42,7 +44,7 @@ export class GostCommandBuilder {
       };
     }
     return {
-      command: 'while true; do /tmp/gost -L="socks5://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done',
+      command: 'while true; do /tmp/gost -L="auto://${SOCKS_USER}:${SOCKS_PASS}@127.0.0.1:${LOCAL_PORT}${SOCKS_QUERY}" >> /tmp/gost-socks.log 2>&1; sleep 1; done',
       envs: {
         SOCKS_USER: encodeURIComponent(input.gost.socksUsername),
         SOCKS_PASS: encodeURIComponent(input.gost.socksPassword),

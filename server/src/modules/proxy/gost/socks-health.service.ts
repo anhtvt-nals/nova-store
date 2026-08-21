@@ -55,6 +55,46 @@ export class SocksHealthService {
     throw new Error(`SOCKS5 endpoint ${host}:${port} did not become reachable`);
   }
 
+  /** Verify the HTTP CONNECT path once during provisioning. Runtime polling
+   * intentionally remains SOCKS-only to avoid doubling per-node checks. */
+  checkHttp(host: string, port: number, username: string, password: string, timeoutMs = 5000): Promise<boolean> {
+    return new Promise(resolve => {
+      const socket = net.createConnection({ host, port });
+      let settled = false;
+      let deadline: NodeJS.Timeout | undefined;
+      let response = '';
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        socket.destroy();
+        resolve(ok);
+      };
+      deadline = setTimeout(() => finish(false), timeoutMs);
+      socket.setTimeout(timeoutMs, () => finish(false));
+      socket.on('error', () => finish(false));
+      socket.on('connect', () => {
+        const authorization = Buffer.from(`${username}:${password}`).toString('base64');
+        socket.write(`CONNECT 1.1.1.1:80 HTTP/1.1\r\nHost: 1.1.1.1:80\r\nProxy-Authorization: Basic ${authorization}\r\nConnection: close\r\n\r\n`);
+      });
+      socket.on('data', chunk => {
+        response += chunk.toString('latin1');
+        const lineEnd = response.indexOf('\r\n');
+        if (lineEnd < 0) return;
+        finish(/^HTTP\/1\.[01] 2\d\d\b/.test(response.slice(0, lineEnd)));
+      });
+    });
+  }
+
+  async waitUntilHttpReady(host: string, port: number, username: string, password: string, timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await this.checkHttp(host, port, username, password)) return;
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+    throw new Error(`HTTP proxy endpoint ${host}:${port} did not become reachable`);
+  }
+
   async waitUntilUnavailable(host: string, port: number, username: string, password: string, timeoutMs = 60000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {

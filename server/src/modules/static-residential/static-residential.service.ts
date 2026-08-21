@@ -67,7 +67,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
       activatedAt: row.activated_at, expiresAt: row.expires_at, createdAt: row.created_at,
       nodes: (row.static_residential_nodes || []).sort((a: any, b: any) => a.public_port - b.public_port).map((node: any) => ({
         id: node.id, port: node.public_port, status: node.status, nextRotationAt: node.next_upstream_rotation_at,
-        connection: credential ? { host: process.env.GOST_PUBLIC_HOST || process.env.GOST_MASTER_HOST || '', port: node.public_port, username: credential.username, password: credential.password, protocol: 'SOCKS5' } : null,
+        connection: credential ? { host: process.env.GOST_PUBLIC_HOST || process.env.GOST_MASTER_HOST || '', port: node.public_port, username: credential.username, password: credential.password, protocol: 'HTTP + SOCKS5' } : null,
       })),
     }));
   }
@@ -103,8 +103,11 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
     const connections = orders.filter(order => order.status === 'active' && new Date(order.expiresAt) > new Date()).flatMap(order => order.nodes)
       .map(node => node.connection).filter(Boolean) as Array<{ host: string; port: number; username: string; password: string }>;
     const encode = encodeURIComponent;
-    const content = connections.map(item => `socks5://${encode(item.username)}:${encode(item.password)}@${item.host}:${item.port}`).join('\n');
-    return { filename: 'nodenesia-static-residential-socks5.txt', content: content ? `${content}\n` : '', count: connections.length };
+    const content = connections.flatMap(item => {
+      const endpoint = `${encode(item.username)}:${encode(item.password)}@${item.host}:${item.port}`;
+      return [`socks5://${endpoint}`, `http://${endpoint}`];
+    }).join('\n');
+    return { filename: 'nodenesia-static-residential-http-socks5.txt', content: content ? `${content}\n` : '', count: connections.length };
   }
 
   async adminInventory(requestedPage?: number, requestedPageSize?: number) {

@@ -305,6 +305,8 @@ export class ProvisioningProcessor implements OnApplicationBootstrap, OnApplicat
         ? githubReadyTimeout
         : replacing ? Math.max(20000, Math.min(120000, configuredReplacementTimeout || 60000)) : 20000;
       await this.health.waitUntilReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
+      await this.health.waitUntilHttpReady(endpoint.publicHost, endpoint.tunnelPort, accountCredential.username, accountCredential.password, readyTimeout);
+      await this.repository.markHttpProxyEnabled(context.nodeId);
       await provider.activateNodeResources?.(context.nodeId);
       // Some providers do not return an egress address. Resolve it through
       // the ready SOCKS endpoint instead of leaving country/IP empty.

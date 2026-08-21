@@ -251,7 +251,10 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
   const total = expiresAt ? Math.max(1, expiresAt - activatedAt) : 1;
   const remaining = expiresAt ? Math.max(0, expiresAt - now) : 0;
   const progress = expiresAt ? Math.min(100, Math.max(0, ((now - activatedAt) / total) * 100)) : 0;
-  const connectionString = `${connection.protocol.toLowerCase()}://${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}`;
+  const endpoint = `${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}`;
+  const socks5ConnectionString = `socks5://${endpoint}`;
+  const httpConnectionString = `http://${endpoint}`;
+  const supportsHttp = connection.protocol === 'HTTP + SOCKS5';
   const rotationUrl = node?.rotationUrl ? new URL(node.rotationUrl, window.location.origin).toString() : null;
   const copy = async (value: string) => {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
@@ -281,13 +284,15 @@ function CompactNodeCard({ order, connection, node, onRestart, restarting }: { o
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
       <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-200" title={`Order #${order.id}`}>Node {node?.id || order.id}</span>
       <span className="text-[8px] font-extrabold tracking-[.08em]" style={{ color: statusColor }}>{statusLabel}</span>
-      <button onClick={() => void copy(connectionString)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-proxy-${node?.id || order.id}`} aria-label="Copy SOCKS5 proxy" title="Copy SOCKS5 proxy">{copied ? <Check size={11} className="text-[#43cf65]" /> : <Copy size={10} />}</button>
+      <button onClick={() => void copy(socks5ConnectionString)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-proxy-${node?.id || order.id}`} aria-label="Copy SOCKS5 proxy" title="Copy SOCKS5 proxy">{copied ? <Check size={11} className="text-[#43cf65]" /> : <Copy size={10} />}</button>
+      {supportsHttp && <button onClick={() => void copy(httpConnectionString)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-http-proxy-${node?.id || order.id}`} aria-label="Copy HTTP proxy" title="Copy HTTP proxy"><span className="text-[8px] font-extrabold">H</span></button>}
       {rotationUrl && <button onClick={() => void copy(rotationUrl)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" data-testid={`button-copy-rotation-url-${node?.id || order.id}`} aria-label="Copy rotation URL" title="Copy rotation URL"><Link2 size={10} /></button>}
       {onRestart && <button onClick={onRestart} disabled={restarting} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-restart-node-${node?.id || order.id}`} aria-label="Restart node" title="Restart node"><RefreshCw className={restarting ? 'animate-spin' : ''} size={10} /></button>}
     </div>
     <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">
-      <div className="flex items-center justify-between gap-2"><p className="text-[8px] font-bold uppercase tracking-[.1em] text-slate-500">SOCKS5 proxy</p></div>
-      <code className="mono mt-1.5 block break-all text-[9px] leading-3.5 text-[#43d6dc]">{connectionString}</code>
+      <div className="flex items-center justify-between gap-2"><p className="text-[8px] font-bold uppercase tracking-[.1em] text-slate-500">{supportsHttp ? 'SOCKS5 / HTTP proxy' : 'SOCKS5 proxy'}</p></div>
+      <code className="mono mt-1.5 block break-all text-[9px] leading-3.5 text-[#43d6dc]">{socks5ConnectionString}</code>
+      {supportsHttp && <code className="mono mt-1 block break-all text-[9px] leading-3.5 text-[#bca7ff]">{httpConnectionString}</code>}
     </div>
     <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-white/10 pl-0.5 pt-2 text-[9px] leading-3.5">
       <p className="min-w-0 text-slate-500">Protocol <strong className="ml-1 text-slate-300">{connection.protocol}</strong></p>
@@ -1409,8 +1414,10 @@ function StaticResidentialPage() {
 function StaticResidentialNodeCard({ node }: { node: StaticResidentialOrder['nodes'][number] }) {
   const { t } = useLocalePreferences();
   const connection = node.connection;
-  const value = connection ? `socks5://${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}` : '';
-  return <div className="min-w-0 rounded-2xl border border-[#e1eaec] bg-[#f8fbfb] p-4"><div className="flex items-center justify-between"><p className="mono text-[10px] text-slate-400">{t('port').toUpperCase()} {node.port}</p><Badge tone={node.status === 'active' ? 'green' : 'neutral'}>{node.status}</Badge></div><code className="mt-4 block break-all text-[11px] leading-5 text-[#13716e]">{value || t('unavailable')}</code>{value && <button onClick={() => void navigator.clipboard?.writeText(value)} className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#e05c37]"><Copy size={13} /> {t('copy')}</button>}<p className="mt-3 text-[10px] text-slate-500">{t('upstreamRotates')} {time(node.nextRotationAt)}</p></div>;
+  const endpoint = connection ? `${encodeURIComponent(connection.username)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}` : '';
+  const socks5Value = endpoint ? `socks5://${endpoint}` : '';
+  const httpValue = endpoint ? `http://${endpoint}` : '';
+  return <div className="min-w-0 rounded-2xl border border-[#e1eaec] bg-[#f8fbfb] p-4"><div className="flex items-center justify-between"><p className="mono text-[10px] text-slate-400">{t('port').toUpperCase()} {node.port}</p><Badge tone={node.status === 'active' ? 'green' : 'neutral'}>{node.status}</Badge></div><p className="mt-4 text-[9px] font-bold uppercase tracking-wide text-slate-400">SOCKS5</p><code className="mt-1 block break-all text-[11px] leading-5 text-[#13716e]">{socks5Value || t('unavailable')}</code>{socks5Value && <div className="mt-3 flex flex-wrap gap-3"><button onClick={() => void navigator.clipboard?.writeText(socks5Value)} className="inline-flex items-center gap-1 text-xs font-bold text-[#e05c37]"><Copy size={13} /> SOCKS5</button><button onClick={() => void navigator.clipboard?.writeText(httpValue)} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c4dcc]"><Copy size={13} /> HTTP</button></div>}{httpValue && <><p className="mt-3 text-[9px] font-bold uppercase tracking-wide text-slate-400">HTTP</p><code className="mt-1 block break-all text-[11px] leading-5 text-[#7c4dcc]">{httpValue}</code></>}<p className="mt-3 text-[10px] text-slate-500">{t('upstreamRotates')} {time(node.nextRotationAt)}</p></div>;
 }
 
 function ClientPortalPage({ serviceType }: { serviceType?: 'datacenter' | 'residential' }) {

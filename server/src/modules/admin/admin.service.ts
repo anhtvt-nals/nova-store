@@ -674,7 +674,7 @@ export class AdminService {
       '          curl -fsSL -o /tmp/gost.tgz "https://github.com/go-gost/gost/releases/download/v$version/gost_${version}_linux_amd64.tar.gz"',
       '          tar -xzf /tmp/gost.tgz -C /tmp gost; chmod +x /tmp/gost',
       "          trap 'jobs -pr | xargs -r kill || true; rm -f \"$config\"' EXIT INT TERM",
-      '          /tmp/gost -L="socks5://$socks_user:$socks_pass@127.0.0.1:$local_port" >/tmp/gost-socks.log 2>&1 &',
+      '          /tmp/gost -L="auto://$socks_user:$socks_pass@127.0.0.1:$local_port" >/tmp/gost-socks.log 2>&1 &',
       '          /tmp/gost -L="rtcp://:$bind_port/127.0.0.1:$local_port" -F="$scheme://$tunnel_user:$tunnel_pass@$master_host:$rendezvous_port$query" >/tmp/gost-tunnel.log 2>&1 &',
       '          sleep 3180',
       '',

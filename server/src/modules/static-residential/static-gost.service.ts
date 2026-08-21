@@ -66,7 +66,9 @@ export class StaticGostService {
     const chainName = this.chainName(node.id);
     await this.put(`/services/${node.serviceName}`, {
       name: node.serviceName, addr: `:${node.port}`, limiter: 'static-bandwidth', climiter: 'static-connections', rlimiter: 'static-requests',
-      handler: { type: 'socks5', auth: { username: node.username, password: node.password }, chain: chainName }, listener: { type: 'tcp' },
+      // A single public endpoint accepts authenticated HTTP proxy and SOCKS5.
+      // The private upstream chain remains SOCKS5.
+      handler: { type: 'auto', auth: { username: node.username, password: node.password }, chain: chainName }, listener: { type: 'tcp' },
     }, true);
   }
 
@@ -111,7 +113,11 @@ export class StaticGostService {
   async hasServices(serviceNames: string[]) {
     for (const serviceName of serviceNames) {
       try {
-        await this.request(`/services/${serviceName}`);
+        const service = await this.request(`/services/${serviceName}`) as any;
+        // Existing services created before HTTP support used a SOCKS5-only
+        // handler. Treat them as stale so reconciliation rewrites them once.
+        const handler = service?.handler || service?.service?.handler;
+        if (handler?.type !== 'auto') return false;
       } catch (error: any) {
         if (error?.status === 404 || /\bnot found\b/i.test(String(error?.message))) return false;
         throw error;

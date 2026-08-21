@@ -283,6 +283,16 @@ export class ProvisioningRepository {
     this.db.unwrap(result, 'Unable to complete proxy provisioning');
   }
 
+  async markHttpProxyEnabled(nodeId: number) {
+    const current = await this.db.client.from('proxy_nodes').select('metadata').eq('id', nodeId).maybeSingle();
+    const row = this.db.unwrap(current, 'Unable to read proxy node metadata') as { metadata?: Record<string, unknown> } | null;
+    if (!row) throw new Error('Proxy node not found while enabling HTTP proxy');
+    const result = await this.db.client.from('proxy_nodes')
+      .update({ metadata: { ...(row.metadata || {}), httpProxyEnabled: true } })
+      .eq('id', nodeId);
+    if (result.error) throw result.error;
+  }
+
   async completeReplacement(input: { jobId: number; workerId: string; externalInstanceId: string; egressIp: string | null; egressCountryCode: string | null; nextRotationAt: Date }) {
     const result = await this.db.client.rpc('complete_proxy_replacement', {
       target_job_id: input.jobId,

@@ -55,7 +55,7 @@ export function mapResource(row: Row) {
     city: row.region?.city || '',
     country: row.region?.country || '',
     status: row.status,
-    protocol: row.capabilities?.protocol || 'SOCKS5',
+    protocol: row.capabilities?.protocol || 'HTTP + SOCKS5',
     latencyMs: Number(row.health?.latencyMs || 0),
     productId: row.product_id,
   };

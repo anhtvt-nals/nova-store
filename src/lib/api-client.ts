@@ -93,7 +93,7 @@ export interface Order {
   countryCode?: string;
 }
 
-export interface StaticResidentialConnection { host: string; port: number; username: string; password: string; protocol: 'SOCKS5'; }
+export interface StaticResidentialConnection { host: string; port: number; username: string; password: string; protocol: 'HTTP + SOCKS5'; }
 export interface StaticResidentialNode { id: number; port: number; status: 'active' | 'suspended' | 'expired' | 'quota_exceeded'; nextRotationAt: string; connection: StaticResidentialConnection | null; }
 export interface StaticResidentialOrder {
   id: number; status: 'active' | 'quota_exceeded' | 'expired' | 'suspended' | 'cancelled'; nodeCount: 5; quotaBytes: number; usedBytes: number; quotaGb: 1 | 3 | 5;
