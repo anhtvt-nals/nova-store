@@ -88,8 +88,12 @@ export class StaticGostService {
   }
 
   async removeOrder(orderId: number, nodes: Array<{ id: number; serviceName: string }>) {
-    await Promise.all(nodes.flatMap(node => [this.remove(`/services/${node.serviceName}`), this.remove(`/chains/${this.chainName(node.id)}`)]));
+    await this.removeNodes(nodes);
     void orderId;
+  }
+
+  async removeNodes(nodes: Array<{ id: number; serviceName: string }>) {
+    await Promise.all(nodes.flatMap(node => [this.remove(`/services/${node.serviceName}`), this.remove(`/chains/${this.chainName(node.id)}`)]));
   }
 
   async usageByService() {

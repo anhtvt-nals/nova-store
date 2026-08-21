@@ -14,6 +14,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { ProxyModule } from './modules/proxy/proxy.module';
 import { StaticResidentialModule } from './modules/static-residential/static-residential.module';
 import { TelegramOnboardingModule } from './modules/telegram-onboarding/telegram-onboarding.module';
+import { TempMailModule } from './modules/temp-mail/temp-mail.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TelegramOnboardingModule } from './modules/telegram-onboarding/telegram
     ProxyModule,
     StaticResidentialModule,
     TelegramOnboardingModule,
+    TempMailModule,
   ],
   controllers: [HealthController],
   providers: [

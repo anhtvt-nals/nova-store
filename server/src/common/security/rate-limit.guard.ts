@@ -91,6 +91,8 @@ export class RateLimitGuard implements CanActivate {
     if (method === 'POST' && path === '/orders') return { scope: 'order-create', limit: 5, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/orders/quote') return { scope: 'order-quote', limit: 30, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/static-residential/orders') return { scope: 'static-order-create', limit: 3, windowMs: 60_000, persistent: true };
+    if (method === 'GET' && path === '/temp-mail/domains') return { scope: 'temp-mail-domains', limit: 30, windowMs: 60_000, persistent: true };
+    if (method === 'GET' && path === '/temp-mail/messages') return { scope: 'temp-mail-messages', limit: 30, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/payments/sumopod/checkout') return { scope: 'sumopod-checkout', limit: 5, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/payments/sumopod/webhook') return { scope: 'sumopod-webhook', limit: 120, windowMs: 60_000, persistent: true };
     if (method === 'POST' && path === '/trial/telegram/start') return { scope: 'telegram-link-start', limit: 3, windowMs: 60 * 60_000, persistent: true };

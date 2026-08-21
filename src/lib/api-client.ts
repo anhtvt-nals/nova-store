@@ -94,15 +94,18 @@ export interface Order {
 }
 
 export interface StaticResidentialConnection { host: string; port: number; username: string; password: string; protocol: 'HTTP + SOCKS5'; }
-export interface StaticResidentialNode { id: number; port: number; status: 'active' | 'suspended' | 'expired' | 'quota_exceeded'; nextRotationAt: string; connection: StaticResidentialConnection | null; }
+export interface StaticResidentialNode { id: number; port: number; status: 'active' | 'suspended' | 'expired' | 'quota_exceeded'; lastReplacedAt: string | null; connection: StaticResidentialConnection | null; }
 export interface StaticResidentialOrder {
   id: number; status: 'active' | 'quota_exceeded' | 'expired' | 'suspended' | 'cancelled'; nodeCount: 5; quotaBytes: number; usedBytes: number; quotaGb: 1 | 3 | 5;
-  pricePerGbDay: number; amount: number; creditCost: number; activatedAt: string; expiresAt: string; createdAt: string; nodes: StaticResidentialNode[];
+  pricePerGbDay: number; amount: number; creditCost: number; replacementCount: number; replacementsRemaining: number; activatedAt: string; expiresAt: string; createdAt: string; nodes: StaticResidentialNode[];
 }
 export interface StaticResidentialQuote { nodeCount: 5; quotaBytes: number; quotaGb: 1 | 3 | 5; rentalDays: number; pricePerGbDay: number; amount: number; creditCost: number; availableNodes: number; canFulfill: boolean; }
 export interface StaticResidentialInventoryItem { id: number; label: string | null; host: string; port: number; username: string; status: 'available' | 'assigned' | 'disabled'; assigned_order_id: number | null; health_failure_count: number; last_health_checked_at: string | null; last_health_error: string | null; created_at: string; updated_at: string; }
 export interface PaginatedStaticResidentialInventory { items: StaticResidentialInventoryItem[]; total: number; available: number; page: number; pageSize: number; totalPages: number; }
 export interface StaticResidentialPricing { pricePerGbDay: number; fixedNodeCount: 5; quotaOptionsGb: Array<1 | 3 | 5>; }
+export interface TempMailMessage { id: string; from: string; subject: string; date: string | null; text: string | null; html: string | null; }
+export interface TempMailDomains { domains: string[]; }
+export interface TempMailMessages { address: string; messages: TempMailMessage[]; }
 
 export interface AdminOrder extends Order {
   customerEmail: string;
@@ -413,6 +416,8 @@ export const getStaticResidentialInventoryQueryKey = (page?: number, pageSize?: 
   ? ['static-residential-inventory'] as const
   : ['static-residential-inventory', page, pageSize] as const;
 export const getStaticResidentialPricingQueryKey = () => ['static-residential-pricing'] as const;
+export const getTempMailDomainsQueryKey = () => ['temp-mail-domains'] as const;
+export const getTempMailMessagesQueryKey = (address: string) => ['temp-mail-messages', address] as const;
 export const getGetAdminOverviewQueryKey = () => ['admin-overview'] as const;
 export const getListUsersQueryKey = () => ['users'] as const;
 export const getPaginatedUsersQueryKey = (page: number, pageSize: number, search: string) => ['users', page, pageSize, search] as const;
@@ -542,6 +547,10 @@ export function useStaticResidentialInventory(page = 1, pageSize = 10, config?: 
   return query(getStaticResidentialInventoryQueryKey(page, pageSize), `/admin/static-residential/inventory?page=${page}&pageSize=${pageSize}`, getAccessToken, config);
 }
 export function useStaticResidentialPricing(config?: QueryConfig<StaticResidentialPricing>) { return query(getStaticResidentialPricingQueryKey(), '/admin/static-residential/pricing', getAccessToken, config); }
+export function useTempMailDomains(config?: QueryConfig<TempMailDomains>) { return query(getTempMailDomainsQueryKey(), '/temp-mail/domains', getAccessToken, config); }
+export function useTempMailMessages(address: string, config?: QueryConfig<TempMailMessages>) {
+  return useQuery<TempMailMessages, Error>({ queryKey: config?.query?.queryKey || getTempMailMessagesQueryKey(address), queryFn: () => request(`/temp-mail/messages?address=${encodeURIComponent(address)}`, getAccessToken), enabled: Boolean(address), refetchInterval: 15_000, ...config?.query });
+}
 export function useGetOrderConnection(id: number, nodeId?: number, config?: QueryConfig<ConnectionDetails>) {
   const path = nodeId ? `/orders/${id}/nodes/${nodeId}/connection` : `/orders/${id}/connection`;
   return query(getGetOrderConnectionQueryKey(id, nodeId), path, getAccessToken, config);
@@ -639,11 +648,14 @@ export function useCreateStaticResidentialOrder(options?: MutationConfig<StaticR
 export function useExtendStaticResidentialOrder(options?: MutationConfig<StaticResidentialOrder, { id: number; data: { rentalDays: number } }>) {
   return useMutation({ mutationFn: ({ id, data }) => request<StaticResidentialOrder>(`/static-residential/orders/${id}/extend`, getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options });
 }
+export function useReplaceStaticResidentialNode(options?: MutationConfig<StaticResidentialOrder | undefined, { orderId: number; nodeId: number }>) {
+  return useMutation({ mutationFn: ({ orderId, nodeId }) => request<StaticResidentialOrder>(`/static-residential/orders/${orderId}/nodes/${nodeId}/replace`, getAccessToken, { method: 'POST' }), ...options });
+}
 export function useExportStaticResidentialConnections(options?: MutationConfig<ProxyConnectionExport, void>) {
   return useMutation({ mutationFn: () => request<ProxyConnectionExport>('/static-residential/connections/export', getAccessToken), ...options });
 }
 export function useImportStaticResidentialInventory(options?: MutationConfig<{ createdOrUpdated: number; duplicatesInFile: number; reconfiguredOrders: number }, { data: { content: string; label?: string } }>) { return useMutation({ mutationFn: ({ data }) => request('/admin/static-residential/inventory/import', getAccessToken, { method: 'POST', body: JSON.stringify(data) }), ...options }); }
-export function useCheckStaticResidentialInventoryStatus(options?: MutationConfig<{ checked: number; healthy: number; failed: number; disabled: number; rotationsTriggered: number; failureThreshold: number }, void>) { return useMutation({ mutationFn: () => request<{ checked: number; healthy: number; failed: number; disabled: number; rotationsTriggered: number; failureThreshold: number }>('/admin/static-residential/inventory/check-status', getAccessToken, { method: 'POST' }), ...options }); }
+export function useCheckStaticResidentialInventoryStatus(options?: MutationConfig<{ checked: number; healthy: number; failed: number; disabled: number; nodesSuspended: number; failureThreshold: number }, void>) { return useMutation({ mutationFn: () => request<{ checked: number; healthy: number; failed: number; disabled: number; nodesSuspended: number; failureThreshold: number }>('/admin/static-residential/inventory/check-status', getAccessToken, { method: 'POST' }), ...options }); }
 export function useEnableStaticResidentialInventoryProxy(options?: MutationConfig<{ id: number; status: 'available' }, { id: number }>) { return useMutation({ mutationFn: ({ id }) => request(`/admin/static-residential/inventory/${id}/enable`, getAccessToken, { method: 'POST' }), ...options }); }
 export function useUpdateStaticResidentialPricing(options?: MutationConfig<StaticResidentialPricing, { data: { pricePerGbDay: number } }>) { return useMutation({ mutationFn: ({ data }) => request('/admin/static-residential/pricing', getAccessToken, { method: 'PATCH', body: JSON.stringify(data) }), ...options }); }
 export function useExtendOrder(options?: MutationConfig<Order, { id: number; data: { rentalDays: number } }>) {
