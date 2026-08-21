@@ -56,7 +56,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
 
   async listForUser(profileId: number) {
     const ordersResult = await this.db.client.from('static_residential_orders')
-      .select('id,status,node_count,quota_bytes,used_bytes,price_per_gb_day,amount,credit_cost,replacement_count,activated_at,expires_at,created_at,static_residential_nodes(id,public_port,status,last_upstream_rotation_at)')
+      .select('id,status,node_count,quota_bytes,used_bytes,price_per_gb_day,amount,credit_cost,replacement_count,activated_at,expires_at,created_at,static_residential_nodes(id,public_port,status,last_upstream_rotation_at,static_residential_proxies(host))')
       .eq('profile_id', profileId).order('created_at', { ascending: false });
     const credential = await this.credentials.get(profileId);
     const rows = this.db.unwrap(ordersResult, 'Unable to load static residential orders') as any[];
@@ -67,6 +67,7 @@ export class StaticResidentialService implements OnModuleInit, OnModuleDestroy {
       activatedAt: row.activated_at, expiresAt: row.expires_at, createdAt: row.created_at,
       nodes: (row.static_residential_nodes || []).sort((a: any, b: any) => a.public_port - b.public_port).map((node: any) => ({
         id: node.id, port: node.public_port, status: node.status, lastReplacedAt: node.last_upstream_rotation_at,
+        egressIp: (Array.isArray(node.static_residential_proxies) ? node.static_residential_proxies[0] : node.static_residential_proxies)?.host || null,
         connection: credential ? { host: process.env.GOST_PUBLIC_HOST || process.env.GOST_MASTER_HOST || '', port: node.public_port, username: credential.username, password: credential.password, protocol: 'HTTP + SOCKS5' } : null,
       })),
     }));

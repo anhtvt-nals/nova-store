@@ -94,7 +94,7 @@ export interface Order {
 }
 
 export interface StaticResidentialConnection { host: string; port: number; username: string; password: string; protocol: 'HTTP + SOCKS5'; }
-export interface StaticResidentialNode { id: number; port: number; status: 'active' | 'suspended' | 'expired' | 'quota_exceeded'; lastReplacedAt: string | null; connection: StaticResidentialConnection | null; }
+export interface StaticResidentialNode { id: number; port: number; status: 'active' | 'suspended' | 'expired' | 'quota_exceeded'; egressIp: string | null; lastReplacedAt: string | null; connection: StaticResidentialConnection | null; }
 export interface StaticResidentialOrder {
   id: number; status: 'active' | 'quota_exceeded' | 'expired' | 'suspended' | 'cancelled'; nodeCount: 5; quotaBytes: number; usedBytes: number; quotaGb: 1 | 3 | 5;
   pricePerGbDay: number; amount: number; creditCost: number; replacementCount: number; replacementsRemaining: number; activatedAt: string; expiresAt: string; createdAt: string; nodes: StaticResidentialNode[];
