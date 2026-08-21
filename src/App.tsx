@@ -1385,20 +1385,39 @@ function ProxyOrderForm({ product, isTrial }: { product: CatalogProduct; isTrial
 function TempMailPage() {
   const domains = useTempMailDomains({ query: { staleTime: 5 * 60_000 } });
   const [localPart, setLocalPart] = useState('');
+  const [activeLocalPart, setActiveLocalPart] = useState('');
   const [domain, setDomain] = useState('');
+  const [activeDomain, setActiveDomain] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const address = localPart && domain ? `${localPart}@${domain}` : '';
-  const messages = useTempMailMessages(address, { query: { enabled: Boolean(address) && /^[a-z0-9][a-z0-9._+-]{0,63}$/i.test(localPart) } });
+  const address = activeLocalPart && activeDomain ? `${activeLocalPart}@${activeDomain}` : '';
+  const messages = useTempMailMessages(address, { query: { enabled: Boolean(address) && /^[a-z0-9][a-z0-9._+-]{0,63}$/i.test(activeLocalPart) } });
+  const randomMailboxName = () => {
+    const names = ['alex', 'aria', 'dimas', 'farah', 'hana', 'james', 'kai', 'lina', 'maya', 'noah', 'raka', 'sara'];
+    const bytes = crypto.getRandomValues(new Uint32Array(2));
+    return `${names[bytes[0] % names.length]}${String(bytes[1] % 10_000).padStart(4, '0')}`;
+  };
   const newMailbox = () => {
-    const value = `node${crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(0, 8)}`;
+    // The action button applies a manually edited name/domain first. When the
+    // draft already matches the active mailbox it creates a fresh human-name
+    // address instead.
+    if (localPart && domain && (localPart !== activeLocalPart || domain !== activeDomain)) {
+      setActiveLocalPart(localPart);
+      setActiveDomain(domain);
+      setSelectedId(null);
+      return;
+    }
+    const value = randomMailboxName();
     setLocalPart(value);
+    setActiveLocalPart(value);
+    setActiveDomain(domain || domains.data?.domains[0] || '');
     setSelectedId(null);
   };
   useEffect(() => {
     if (!domains.data?.domains.length) return;
     if (!domain || !domains.data.domains.includes(domain)) setDomain(domains.data.domains[0]);
+    if (!activeDomain || !domains.data.domains.includes(activeDomain)) setActiveDomain(domains.data.domains[0]);
     if (!localPart) newMailbox();
-  }, [domains.data?.domains, domain, localPart]);
+  }, [domains.data?.domains, domain, activeDomain, localPart]);
   const selected = (messages.data?.messages || []).find(message => message.id === selectedId) || messages.data?.messages?.[0] || null;
   const messageText = selected?.text || (selected?.html ? selected.html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '');
   return <CustomerShell active="temp-mail"><main className="mx-auto max-w-7xl px-5 py-9 pb-28 lg:px-8 lg:py-12"><section className="relative overflow-hidden rounded-3xl bg-[#142037] px-6 py-6 text-white"><div className="hero-grid absolute inset-0 opacity-15" /><div className="relative flex flex-wrap items-end justify-between gap-5"><div><p className="mono text-[10px] uppercase tracking-[.2em] text-[#69d5d0]">private workspace tool</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.05em]">Temp Mail</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Create a disposable inbox, receive messages, and keep your personal address out of sign-up flows.</p></div><div className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-bold text-[#91e4df]"><span className="h-2 w-2 rounded-full bg-[#69d5d0]" /> Auto-refresh every 15 seconds</div></div></section><section className="mt-6 grid gap-5 xl:grid-cols-[.82fr_1.18fr]"><div className="rounded-3xl border border-[#dbe7e9] bg-white p-6 shadow-[0_10px_35px_rgba(20,32,55,.04)]"><div className="flex items-start justify-between gap-3"><div><p className="mono text-[10px] uppercase tracking-[.16em] text-[#e4643d]">new mailbox</p><h2 className="mt-2 text-xl font-extrabold">Your temporary address</h2></div><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#def5f3] text-[#13716e]"><Mail size={19} /></span></div><label className="mt-6 block text-xs font-bold text-slate-500">Mailbox name<input value={localPart} maxLength={64} onChange={event => { setLocalPart(event.target.value.toLowerCase().replace(/[^a-z0-9._+-]/g, '')); setSelectedId(null); }} className="mt-2 block w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm font-semibold text-[#142037] outline-none focus:border-[#69d5d0]" /></label><label className="mt-4 block text-xs font-bold text-slate-500">Domain<select value={domain} onChange={event => { setDomain(event.target.value); setSelectedId(null); }} className="mt-2 block w-full rounded-xl border border-[#dbe7e9] bg-[#f8fbfb] px-3 py-3 text-sm font-semibold text-[#142037] outline-none focus:border-[#69d5d0]">{domains.data?.domains.map(value => <option key={value} value={value}>{value}</option>)}</select></label><div className="mt-5 rounded-2xl border border-[#bfe3df] bg-[#eaf8f6] p-4"><p className="mono text-[9px] uppercase tracking-[.14em] text-[#13716e]">active address</p><p className="mt-2 break-all text-sm font-extrabold text-[#142037]">{address || 'Loading domains…'}</p><div className="mt-4 flex gap-2"><Button variant="outline" className="min-h-9 flex-1 px-3 text-xs" disabled={!address} onClick={() => void navigator.clipboard?.writeText(address)}><Copy size={14} /> Copy</Button><Button className="min-h-9 flex-1 px-3 text-xs" onClick={newMailbox}><RefreshCw size={14} /> New</Button></div></div><p className="mt-5 text-xs leading-5 text-slate-500">Messages are fetched through Nodenesia securely. Do not use this inbox for passwords, payments, or sensitive recovery links.</p></div><div className="min-h-[540px] overflow-hidden rounded-3xl border border-[#dbe7e9] bg-white shadow-[0_10px_35px_rgba(20,32,55,.04)]"><div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4"><div><p className="mono text-[10px] uppercase tracking-[.16em] text-[#e4643d]">inbox</p><h2 className="mt-1 text-lg font-extrabold">{messages.data?.messages.length || 0} message{messages.data?.messages.length === 1 ? '' : 's'}</h2></div><Button variant="outline" className="min-h-9 px-3 text-xs" disabled={messages.isFetching || !address} onClick={() => void messages.refetch()}><RefreshCw size={14} className={messages.isFetching ? 'animate-spin' : ''} /> Refresh</Button></div><State loading={domains.isLoading || (Boolean(address) && messages.isLoading)} error={domains.isError || messages.isError} onRetry={() => { void domains.refetch(); void messages.refetch(); }}><div className="grid min-h-[460px] md:grid-cols-[.78fr_1.22fr]"><div className="max-h-[460px] overflow-y-auto border-b border-[#edf2f3] md:border-b-0 md:border-r">{messages.data?.messages.length ? messages.data.messages.map(message => <button key={message.id} onClick={() => setSelectedId(message.id)} className={cx('block w-full border-b border-[#edf2f3] px-5 py-4 text-left transition', selected?.id === message.id ? 'bg-[#eaf8f6]' : 'hover:bg-[#f8fbfb]')}><p className="truncate text-sm font-extrabold text-[#142037]">{message.subject}</p><p className="mt-1 truncate text-xs text-slate-500">{message.from}</p><p className="mt-2 mono text-[9px] text-slate-400">{message.date ? new Date(message.date).toLocaleString() : 'New message'}</p></button>) : <div className="grid h-full place-items-center p-8 text-center"><Mail className="mx-auto text-[#69d5d0]" size={26} /><p className="mt-3 text-sm font-bold text-[#142037]">Inbox is waiting</p><p className="mt-1 text-xs leading-5 text-slate-500">Use this address in a sign-up form, then refresh to receive its message.</p></div>}</div><article className="min-w-0 p-5">{selected ? <><div className="border-b border-[#edf2f3] pb-4"><p className="text-lg font-extrabold text-[#142037]">{selected.subject}</p><p className="mt-2 text-xs text-slate-500">From: {selected.from}</p><p className="mt-1 text-xs text-slate-400">{selected.date ? new Date(selected.date).toLocaleString() : ''}</p></div><pre className="mt-5 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-700">{messageText || 'This message has no readable text body.'}</pre></> : <div className="grid h-full place-items-center text-center"><Mail className="text-slate-300" size={30} /><p className="mt-3 text-sm text-slate-500">Choose a message to read it here.</p></div>}</article></div></State></div></section></main></CustomerShell>;
